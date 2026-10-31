@@ -92,6 +92,12 @@ Mia 不只有聊天历史，还能结合稳定学习偏好、近期问题、相�
 
 Skill 通过 Mastra 原生接口加载，参考文件按需读取。量规、例句和题型方法与当前原稿一起工作。
 
+## 技术框架
+
+<img src="assets/technical-architecture.svg" alt="拾语技术框架：Next.js 前端、Mia Mastra Agent、原生记忆与 Skills、校本资料 RAG、学习证据画像、PostgreSQL 持久化和云端调度" width="100%" />
+
+前台对话负责即时教学，后台反思整合学习线索；资料按需检索，画像与证据回到下一次回答。[查看架构说明 →](docs/architecture.md)
+
 ## 技术栈
 
 - **应用与交互**：Next.js 16 · React 19 · TypeScript · Motion · Streamdown。

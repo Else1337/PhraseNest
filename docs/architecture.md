@@ -2,22 +2,7 @@
 
 拾语把材料、对话、证据与教学动作分开管理，再在需要时连接起来。
 
-```mermaid
-flowchart TD
-  A[学生的作文、试题、笔记与提问] --> B[Next.js 会话接口]
-  B --> C[Mia · Mastra Agent]
-  C <--> D[当前原稿与对话记忆]
-  C <--> E[高中英语 Skills]
-  C <--> F[资料检索与原文工具]
-  C --> G[逐字证据与轻量索引]
-  G --> H[后台 Reflector 按需回读]
-  G --> I[学生画像读模型]
-  H --> I
-  I --> J[问题网络、变化卡片与教师复核]
-  I --> C
-  C --> K[讲解、修订、复习与练习]
-  K --> A
-```
+<img src="../assets/technical-architecture.svg" alt="拾语技术框架：交互、Agent 编排、资料检索、学习追踪、持久化与云端调度" width="100%" />
 
 ## 前台快循环：先教学，同时留下线索
 

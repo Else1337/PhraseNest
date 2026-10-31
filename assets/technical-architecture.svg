@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1224" viewBox="0 0 1600 1224" role="img" aria-labelledby="title desc">
+  <title id="title">拾语 PhraseNest 技术框架</title>
+  <desc id="desc">Next.js 前端和会话接口连接 Mia Mastra Agent。Agent 按需使用原生记忆、教学 Skills 和工具；资料链路完成解析与检索，学习链路连接原句证据、轻量索引、Reflector 与画像。共享 PostgreSQL 和私有原件存储负责持久化，Docker 云托管与私有定时函数负责运行和调度。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1 9 5 1 9" fill="none" stroke="#82958A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
+  </defs>
+  <rect width="1600" height="1224" rx="24" fill="#F5F3EC"/>
+  <g font-family="'Noto Sans SC','Microsoft YaHei',sans-serif" text-anchor="middle">
+    <text x="800" y="65" fill="#6B7C71" font-size="18" letter-spacing="3">PHRASENEST · ARCHITECTURE</text>
+    <text x="800" y="116" fill="#253D31" font-size="36">一套连接教学、记忆与证据的系统。</text>
+
+    <rect x="72" y="164" width="1456" height="120" rx="20" fill="#FFFFFF" stroke="#D9DFD4"/>
+    <text x="800" y="211" fill="#263D31" font-size="29">Mia 学生端 · 教师端</text>
+    <text x="800" y="252" fill="#68766D" font-size="23">Next.js 16 / React 19 / TypeScript · 会话接口与流式呈现</text>
+
+    <path d="M800 286v42" fill="none" stroke="#82958A" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="72" y="334" width="1456" height="178" rx="20" fill="#E7EEE1" stroke="#CCD9C7"/>
+    <text x="800" y="385" fill="#263D31" font-size="31">Mia · Mastra Agent</text>
+    <rect x="148" y="425" width="394" height="54" rx="13" fill="#F7F9F4"/>
+    <rect x="603" y="425" width="394" height="54" rx="13" fill="#F7F9F4"/>
+    <rect x="1058" y="425" width="394" height="54" rx="13" fill="#F7F9F4"/>
+    <text x="345" y="460" fill="#46624E" font-size="23">Memory · 对话与长期偏好</text>
+    <text x="800" y="460" fill="#46624E" font-size="23">Skills · 高中英语按需教学</text>
+    <text x="1255" y="460" fill="#46624E" font-size="23">Tools · 检索、记录与管理</text>
+
+    <g fill="none" stroke="#82958A" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)">
+      <path d="M424 519v44"/>
+      <path d="M1176 519v44"/>
+      <path d="M424 782v54"/>
+      <path d="M1176 782v54"/>
+    </g>
+
+    <rect x="72" y="570" width="704" height="205" rx="20" fill="#FFFFFF" stroke="#D9DFD4"/>
+    <text x="424" y="620" fill="#263D31" font-size="29">校本资料与 RAG</text>
+    <text x="424" y="665" fill="#68766D" font-size="23">PDF / DOCX / 图片 → 解析与版本化</text>
+    <text x="424" y="704" fill="#68766D" font-size="23">关键词 / 向量检索 → 引用与原文回读</text>
+    <text x="424" y="746" fill="#8A948A" font-size="19">unpdf · Mammoth · OCR · Embedding</text>
+
+    <rect x="824" y="570" width="704" height="205" rx="20" fill="#FFFFFF" stroke="#D9DFD4"/>
+    <text x="1176" y="620" fill="#263D31" font-size="29">学习追踪与画像</text>
+    <text x="1176" y="665" fill="#68766D" font-size="23">原句证据 → 轻量索引 → Reflector</text>
+    <text x="1176" y="704" fill="#68766D" font-size="23">Mastra Workflow → 画像与变化卡片</text>
+    <text x="1176" y="746" fill="#8A948A" font-size="19">相关画像与证据，供下一次教学参考</text>
+
+    <rect x="72" y="844" width="1456" height="150" rx="20" fill="#FFFFFF" stroke="#D9DFD4"/>
+    <text x="800" y="899" fill="#263D31" font-size="29">CloudBase 共享 PostgreSQL · 私有原件存储</text>
+    <text x="800" y="942" fill="#68766D" font-size="23">会话与记忆 · 原始证据 · 画像版本 · 资料目录与索引</text>
+    <text x="800" y="974" fill="#8A948A" font-size="19">HTTP 网关与项目持久化适配器</text>
+
+    <path d="M184 1030h1232" fill="none" stroke="#D9DFD4"/>
+    <text x="800" y="1085" fill="#46624E" font-size="26">Docker / Node.js · 腾讯云云托管</text>
+    <text x="800" y="1127" fill="#68766D" font-size="23">私有定时函数 → 解析补偿 / 每日任务 / 学习反思</text>
+    <text x="800" y="1180" fill="#8A948A" font-size="19">框架负责运行机制，项目负责学习事实与教学业务。</text>
+  </g>
+</svg>
