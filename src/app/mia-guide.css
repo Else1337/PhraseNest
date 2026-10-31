@@ -1,0 +1,19 @@
+.mia-guide{position:fixed;z-index:120;box-sizing:border-box;width:min(360px,calc(100vw - 32px));padding:18px 20px 16px;border:1px solid #eadbd8;border-radius:22px;background:#fffdfa;color:#282a28;box-shadow:0 10px 40px #29211b15;font-family:var(--font-ui),Georgia,serif;max-height:calc(100dvh - 24px);overflow:auto;text-align:left;isolation:isolate;touch-action:pan-y}
+.mia-guide-heading{display:flex;gap:10px;align-items:center;padding-right:12px;min-height:75px}
+.mia-guide-heading img{flex:0 0 76px;width:76px;height:74px;object-fit:contain}
+.mia-guide-heading small{display:block;margin-bottom:6px;color:#a16668;font-size:11px;letter-spacing:.04em}
+.mia-guide h2{font-family:inherit;font-weight:500;font-size:17px;line-height:1.5;margin:0;letter-spacing:0}
+.mia-guide p{font-size:14px;line-height:1.8;margin:12px 0 16px;color:#62615e;overflow-wrap:anywhere}
+.mia-guide button{font:inherit;cursor:pointer;touch-action:manipulation}
+.mia-close{position:absolute;top:10px;right:10px;display:grid;place-items:center;width:32px;height:32px;border:0!important;background:transparent!important;border-radius:50%;color:#7d7772}
+.mia-guide-actions{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.mia-guide .mia-skip{border:0;background:transparent;color:#88817b;padding:10px 0;font-size:12px}
+.mia-guide .mia-next{display:flex;align-items:center;justify-content:center;gap:8px;background:#302d2b;color:#fffdf9;border:0;border-radius:99px;min-height:40px;padding:9px 15px;font-size:13px;white-space:nowrap}
+.mia-guide button:focus-visible,.mia-replay:focus-visible{outline:2px solid #b97981;outline-offset:3px}
+.mia-replay{font:inherit;cursor:pointer}
+.mia-replay.mia-paper-help{position:absolute;z-index:5;top:max(18px,env(safe-area-inset-top));right:78px;display:grid;place-items:center;min-height:40px;width:40px;padding:0;border:0;background:transparent;color:#84919a;border-radius:50%}
+.mia-save-notice{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:200;max-width:calc(100vw - 32px);width:max-content;background:#fffdfa;color:#685c55;border:1px solid #eadbd8;border-radius:14px;padding:12px 16px;display:flex;align-items:center;gap:12px;font-size:12px}
+.mia-save-notice button{background:none;border:0;color:inherit;display:grid;place-items:center;cursor:pointer}
+@media(prefers-color-scheme:dark){.mia-guide{background:#252321;color:#f1e9e3;border-color:#51413f;box-shadow:0 10px 40px #0003}.mia-guide p{color:#c6bbb4}.mia-guide-heading small{color:#e4afb6}.mia-guide .mia-next{background:#f1e8e1;color:#2c2725}.mia-guide .mia-skip,.mia-close{color:#bfb2a9}.mia-save-notice{background:#252321;color:#f1e9e3;border-color:#51413f}}
+@media(max-width:600px){.mia-guide{padding:14px 16px;border-radius:20px}.mia-guide h2{font-size:16px}.mia-guide p{font-size:13px;line-height:1.75;margin:10px 0 12px}.mia-guide-heading{min-height:62px}.mia-guide-heading img{width:64px;height:62px;flex-basis:64px}}
+@media(prefers-reduced-motion:reduce){.mia-guide{animation:none!important;transition:none!important;transform:none!important}}

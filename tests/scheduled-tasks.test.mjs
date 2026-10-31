@@ -1,0 +1,66 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { readFile, mkdtemp } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import ts from 'typescript';
+const moduleUrl = async (file, aliases = {}) => {
+  let source = ts.transpileModule(await readFile(new URL(file, import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
+  for (const [name, url] of Object.entries({ zod: import.meta.resolve('zod'), ...aliases })) source = source.replaceAll(`from "${name}"`, `from "${url}"`);
+  return 'data:text/javascript;base64,' + Buffer.from(source).toString('base64');
+};
+const model = await moduleUrl('../src/lib/student/dialogue-model.ts');
+const storage = await moduleUrl('../src/lib/storage/file-store.ts');
+const prompt = await moduleUrl('../src/lib/student/daily-task-prompt.ts');
+const tasks = await import(await moduleUrl('../src/lib/student/scheduled-tasks.ts', { '@/lib/storage/file-store': storage, './dialogue-model': model, './daily-task-prompt': prompt }));
+const edits = await import(await moduleUrl('../src/lib/student/library-edits.ts', { '@/lib/storage/file-store': storage, './dialogue-model': model }));
+process.env.STUDENT_PROJECT_DATA_DIR = await mkdtemp(path.join(os.tmpdir(), 'zhibi-daily-tasks-'));
+const alice = 'a0b38c3d-7fd8-4f5a-9eda-c7d8583e14c1', bob = 'a0b38c3d-7fd8-4f5a-9eda-c7d8583e14c2';
+test('Beijing daily/weekday schedules cross UTC day and never duplicate at the boundary', () => {
+  assert.equal(tasks.nextTaskTime({ time: '07:00', weekdays: [1,2,3,4,5,6,7] }, new Date('2026-10-21T22:59:59Z')), '2026-10-21T23:00:00.000Z');
+  assert.equal(tasks.nextTaskTime({ time: '07:00', weekdays: [1,2,3,4,5,6,7] }, new Date('2026-10-21T23:00:00Z')), '2026-10-22T23:00:00.000Z');
+  assert.equal(tasks.nextTaskTime({ time: '07:00', weekdays: [1] }, new Date('2026-10-23T23:00:00Z')), '2026-10-25T23:00:00.000Z');
+});
+test('task CRUD is owner scoped, default is 07:00 and edits cancel stale jobs', async () => {
+  const created = await tasks.scheduledTaskAction(alice, { action: 'create', settings: {} });
+  assert.equal(created.task.time, '07:00');
+  assert.equal((await tasks.scheduledTaskAction(alice, { action: 'create', settings: {} })).task.id, created.task.id);
+  const first = await tasks.scheduledTaskAction(alice, { action: 'run', id: created.task.id });
+  assert.equal((await tasks.scheduledTaskAction(alice, { action: 'run', id: created.task.id })).runId, first.runId);
+  await assert.rejects(tasks.scheduledTaskAction(bob, { action: 'delete', id: created.task.id }), /任务不存在/);
+  const job = await tasks.claimDailyTask(alice); assert(job);
+  assert.equal(await tasks.claimDailyTask(alice), null);
+  await tasks.scheduledTaskAction(alice, { action: 'update', id: created.task.id, patch: { time: '08:00' } });
+  await assert.rejects(tasks.updateDailyRun(alice, job.run, () => {}), /任务已停止/);
+  assert.equal((await tasks.readScheduledTasks(alice)).runs.find(r => r.id === first.runId).status, 'cancelled');
+  await tasks.scheduledTaskAction(alice, { action: 'pause', id: created.task.id });
+  assert.equal((await tasks.scheduledTaskAction(alice, { action: 'list' })).tasks[0].enabled, false);
+  await tasks.scheduledTaskAction(alice, { action: 'resume', id: created.task.id });
+  assert.equal((await tasks.scheduledTaskAction(alice, { action: 'list' })).tasks[0].enabled, true);
+});
+test('published edition is readable once per day; completed notification only after publication; delete fences worker', async () => {
+  const task = (await tasks.scheduledTaskAction(bob, { action: 'create', settings: {} })).task;
+  await tasks.scheduledTaskAction(bob, { action: 'run', id: task.id });
+  const job = await tasks.claimDailyTask(bob); assert(job);
+  assert.equal((await tasks.generatedDailyPublications(bob)).length, 0);
+  const lesson = { title: '合作', summary: '今天从合作情境学习。', markdown: '完整文稿'.repeat(40), words: Array.from({ length:20 }, (_, i) => ({ expression: 'word'+i, sourceId:'original', quote:'word'+i })), warnings:[] };
+  await tasks.publishDailyRun(bob, job.run, lesson);
+  assert.equal((await tasks.generatedDailyPublications(bob)).length, 1);
+  assert.equal((await tasks.scheduledTaskAction(bob, { action:'list' })).runs[0].status, 'complete');
+  await tasks.scheduledTaskAction(bob, { action:'delete', id:task.id });
+  assert.equal((await tasks.scheduledTaskAction(bob, { action:'list' })).tasks.length, 0);
+  assert.equal((await tasks.generatedDailyPublications(bob)).length, 1, 'deleting schedule preserves lesson');
+  await assert.rejects(tasks.publishDailyRun(bob, job.run, lesson), /任务已停止/);
+});
+test('original library edits preserve old content, reject stale versions and can restore deletion', async () => {
+  const source = { id:'original-note', title:'完形笔记', content:'adopt a method\n完整原稿' }, version = edits.materialVersion(source);
+  await edits.saveLibraryEdit(alice, source, { content:'adapt to a change\n完整原稿' }, version, 'turn-a');
+  const current = (await edits.applyLibraryEdits(alice, [source]))[0]; assert.match(current.content, /adapt/);
+  assert.deepEqual(await edits.applyLibraryEdits(bob, [source]), [source]);
+  await assert.rejects(edits.saveLibraryEdit(alice, source, { title:'stale' }, version, 'turn-b'), /资料已变化/);
+  await edits.saveLibraryEdit(alice, current, { deleted:true }, edits.materialVersion(current), 'turn-c');
+  assert.equal((await edits.applyLibraryEdits(alice, [source])).length, 0);
+  await edits.restoreLibraryEdit(alice, source.id, 'turn-d');
+  assert.match((await edits.applyLibraryEdits(alice, [source]))[0].content, /adapt/);
+  assert.equal((await edits.exportLibraryEdits(alice)).history[0].content, source.content);
+});

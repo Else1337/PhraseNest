@@ -1,0 +1,184 @@
+/* ChatGPT screenshot proportions. UI uses the existing system face; reading
+   documents retain the book face. Controls only expose supported features. */
+.dw-compose-area { width:min(84%,960px); }
+.dw-compose-area.is-welcome { top:35%; }
+.dw-compose-greeting { font:500 30px/1.35 system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; margin-bottom:36px; letter-spacing:-.6px; color:#171717; }
+.dialogue .dw-composer { min-height:60px; grid-template-columns:44px minmax(0,1fr) 44px; grid-template-rows:minmax(44px,auto); gap:0 8px; padding:6px 8px; border-radius:30px; align-items:center; }
+.dialogue .dw-composer textarea { grid-column:2; grid-row:1; min-height:28px; height:28px; line-height:1.65; padding:0 4px; }
+.dialogue .dw-composer .dw-attachment-menu-anchor { grid-column:1; grid-row:1; }
+.dialogue .dw-composer .dw-send { grid-column:3; grid-row:1; }
+.dialogue .dw-composer:has(.dw-chat-thumbnails) { grid-template-rows:auto minmax(44px,auto); padding-top:10px; border-radius:24px; }
+.dialogue .dw-composer:has(.dw-chat-thumbnails) textarea,.dialogue .dw-composer:has(.dw-chat-thumbnails) .dw-attachment-menu-anchor,.dialogue .dw-composer:has(.dw-chat-thumbnails) .dw-send { grid-row:2; }
+.dw-compose-area.is-welcome .dw-compose-note { display:none; }
+.dw-task-recommendations { order:5; display:grid; gap:8px; margin:24px 8px 0; font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
+.dw-task-recommendation { display:flex; align-items:center; gap:15px; width:100%; min-height:52px; padding:8px 12px; border:0; border-radius:12px; background:transparent; color:#858585; text-align:left; font:inherit; }
+.dw-task-recommendation>svg:first-child { flex:none; color:#343434; }
+.dw-task-recommendation>svg:last-child { flex:none; margin-left:auto; opacity:.45; }
+.dw-task-recommendation>span { display:grid; gap:3px; min-width:0; }
+.dw-task-recommendation strong { font:inherit; font-size:15px; font-weight:400; line-height:1.5; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dw-task-recommendation small { font-size:12px; line-height:1.5; color:#939393; }
+.dw-task-retry { border:0; background:none; color:#888; text-align:left; padding:10px; }
+.dw-chat-frame { --chat-fade-bottom:76px; }
+.dw-recommended-review { text-align:center; padding:16px 0; }
+.dw-recommended-review>small { display:block; font-size:12px; color:#858585; }
+.dw-recommended-review h3 { margin:36px 0 12px; font-size:28px; font-weight:500; }
+.dw-review-source { font-size:12px; color:#8a8a8a; }
+.dw-review-meaning,.dw-review-reveal { min-height:100px; margin:24px 0; padding:24px; border:0; border-radius:16px; background:#f7f7f7; white-space:pre-wrap; }
+.dw-review-reveal { width:100%; color:#6d6d6d; }
+.dw-recommended-review>footer { display:flex; gap:8px; margin:24px 0 16px; }
+.dw-recommended-review>footer button { display:flex; flex:1; justify-content:center; align-items:center; gap:6px; min-height:44px; background:#f4f4f4; border:1px solid #ececec; border-radius:12px; }
+.dw-recommended-review>footer button[aria-pressed=true] { background:#ebf3ed; }
+
+/* Shared sidebar list and top-layer actions: no clipped menus in scrollports. */
+.dw-conversation-row { position:relative; display:flex; align-items:center; border-radius:11px; min-height:46px; }
+.dw-conversation-row[data-current] { background:#eaeaea; }
+.dw-conversations .dw-conversation-open,.dw-touch-panel .dw-conversations .dw-conversation-open { display:flex; align-items:center; gap:8px; width:calc(100% - 38px); min-width:0; min-height:46px; margin:0; padding:9px 9px 9px 13px; background:transparent; border:0; border-radius:11px; text-align:left; }
+.dw-conversations .dw-conversation-open>span { display:block; min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dw-conversation-open small { flex:none; font-size:11px; color:#999; }
+.dw-conversations .dw-conversation-more,.dw-touch-panel .dw-conversations .dw-conversation-more { display:grid; flex:none; place-items:center; width:36px; height:44px; min-height:44px; padding:0; border:0; background:none; color:#777; }
+.dw-list-empty { padding:0 12px; color:#999; font-size:12px; }
+.dw-conversation-dialog { position:fixed; margin:auto; width:min(420px,calc(100vw - 32px)); max-height:calc(100dvh - 24px); padding:24px; border:1px solid #e9e9e9; border-radius:22px; color:#242424; background:#fff; box-shadow:0 10px 48px 4px #00000012; font:14px/1.65 system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
+.dw-conversation-dialog::backdrop { background:#0004; }
+.dw-conversation-dialog.is-menu { inset:auto; width:200px; margin:0; padding:6px; border-radius:18px; }
+.dw-conversation-dialog.is-menu::backdrop { background:transparent; }
+.dw-conversation-dialog.is-menu>button { display:flex; align-items:center; gap:12px; width:100%; min-height:44px; padding:9px 12px; border:0; background:transparent; border-radius:12px; font:inherit; text-align:left; }
+.dw-conversation-dialog form>header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.dw-conversation-dialog h3 { margin:0 0 12px; font-size:19px; font-weight:600; }
+.dw-conversation-dialog form>header>button { display:grid; place-items:center; width:36px; height:36px; border:0; border-radius:50%; background:transparent; }
+.dw-conversation-dialog label { display:grid; gap:8px; margin:10px 0 20px; }
+.dw-conversation-dialog input { width:100%; min-height:44px; padding:8px 12px; border:1px solid #d8d8d8; border-radius:10px; font:inherit; }
+.dw-conversation-dialog footer { display:flex; justify-content:flex-end; gap:10px; margin-top:20px; }
+.dw-conversation-dialog footer>button { min-height:42px; padding:7px 16px; border:1px solid #e4e4e4; border-radius:12px; background:white; font:inherit; }
+.is-danger,.dw-conversation-dialog .is-danger { color:#b53232; }
+.dw-conversation-dialog [role=alert] { color:#ae3030; font-size:13px; }
+
+/* A single, document-first library with compact expression notebooks. */
+.dw-page-library .dw-page-content,.dw-page-corpus .dw-page-content { max-width:1160px; width:100%; }
+.unified-library { font:14px/1.55 system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; color:#282828; padding-bottom:40px; }
+.unified-library button,.unified-library select,.unified-library input,.unified-library textarea { font:inherit; color:inherit; }
+.unified-library button { cursor:pointer; }
+.ul-header { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:24px; }
+.ul-header h1 { margin:0; font:600 27px/1.4 system-ui,sans-serif; letter-spacing:-.7px; }
+.ul-header p { margin:5px 0 0; color:#8a8a8a; font-size:12px; }
+.ul-header>div:last-child { display:flex; gap:9px; }
+.ul-header button,.ul-expression-form>button { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:42px; padding:8px 13px; border:1px solid #e7e7e7; border-radius:12px; background:white; }
+.ul-header .ul-add { background:#252525; color:#fff; border-color:#252525; }
+.ul-search { display:flex; align-items:center; gap:10px; min-height:46px; padding:8px 14px; background:#f6f6f7; border:1px solid #eeeeef; border-radius:13px; margin-bottom:22px; }
+.ul-search input { flex:1; min-width:0; border:0; outline:0; background:none; padding:0; }
+.ul-search>button { display:grid; place-items:center; padding:0; background:none; border:0; min-width:32px; height:32px; }
+.ul-layout { display:grid; grid-template-columns:190px minmax(0,1fr); gap:28px; }
+.ul-folders { min-width:0; }
+.ul-folders>button,.ul-folder-row>button:first-child { display:flex; align-items:center; gap:9px; min-height:42px; padding:9px 10px; background:transparent; border:0; border-radius:10px; text-align:left; width:100%; }
+.ul-folders>button[aria-pressed=true],.ul-folder-row:has([aria-pressed=true]) { background:#eeeeef; }
+.ul-folder-caption { display:flex; align-items:center; justify-content:space-between; margin:20px 0 6px; padding-left:10px; color:#929292; font-size:12px; }
+.ul-folder-caption>button { width:36px; height:36px; display:grid; place-items:center; padding:0; border:0; background:none; color:#777; }
+.ul-folder-row { display:flex; align-items:center; border-radius:10px; }
+.ul-folder-row>button:first-child { min-width:0; flex:1; }
+.ul-folder-row span { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ul-content { min-width:0; }
+.ul-type-tabs { display:flex; gap:5px; flex-wrap:wrap; border-bottom:1px solid #ededed; padding:0 0 13px; }
+.ul-type-tabs>button { border:0; background:none; padding:8px 11px; min-height:40px; border-radius:10px; color:#777; }
+.ul-type-tabs>button[aria-current] { background:#eeeeef; color:#242424; }
+.ul-bulk { display:flex; align-items:center; flex-wrap:wrap; gap:10px; min-height:54px; color:#888; font-size:12px; }
+.ul-bulk label { display:flex; align-items:center; gap:9px; }
+.ul-bulk a { margin-left:auto; color:#727272; text-decoration:none; }
+.ul-bulk>button { padding:5px 8px; border:0; background:none; }
+.ul-bulk select { max-width:180px; }
+.ul-notebook { border-top:1px solid #ededed; }
+.ul-notebook>summary { display:flex; align-items:center; gap:9px; min-height:54px; cursor:pointer; list-style:none; }
+.ul-notebook>summary::-webkit-details-marker { display:none; }
+.ul-notebook>summary::before { content:'›'; color:#999; transform:rotate(0); }
+.ul-notebook[open]>summary::before { transform:rotate(90deg); }
+.ul-notebook>summary>span { margin-left:auto; color:#8b8b8b; font-size:12px; }
+.ul-notebook>summary>small { font-size:11px; color:#a2a2a2; }
+.ul-entry { border-top:1px solid #f0f0f0; }
+.ul-entry[data-selected] { background:#f5f8f5; }
+.ul-entry-row { display:flex; align-items:center; gap:9px; min-height:76px; padding:8px 0; }
+.ul-entry-row>input[type=checkbox],.ul-bulk input[type=checkbox] { flex:none; width:16px; height:16px; accent-color:#4d765a; cursor:pointer; }
+.ul-entry-main { display:flex; align-items:center; gap:12px; flex:1; min-width:0; text-align:left; padding:5px 0; border:0; background:transparent; }
+.ul-entry-main>svg { flex:none; color:#767676; }
+.ul-entry-main>span { min-width:0; flex:1; }
+.ul-entry-main strong { display:block; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ul-entry-main small { display:block; margin-top:3px; color:#939393; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ul-tags { display:flex; flex-wrap:wrap; gap:4px; }
+.ul-tags>i { margin-top:5px; border-radius:5px; background:#f1f1f1; padding:1px 5px; font-style:normal; font-size:10px; color:#888; }
+.ul-icon { display:grid; place-items:center; flex:none; width:36px; height:44px; border:0; padding:0; background:none; border-radius:8px; color:#888; }
+.ul-icon[aria-pressed=true] { color:#547d60; }
+.ul-entry-details { margin:0 0 16px 27px; padding:16px 18px; border:1px solid #eeeeef; border-radius:12px; background:#fcfcfc; }
+.ul-expression { font:24px/1.7 Georgia,"Noto Serif SC",serif; margin:0 0 10px; }
+.ul-meaning { white-space:pre-wrap; color:#555; }
+.ul-provenance { font-size:12px; color:#949494; }
+.ul-detail-actions { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+.ul-entry-details button,.ul-folder-editor button,.ul-expression-form>button { border:1px solid #e5e5e5; border-radius:9px; background:#fff; min-height:38px; padding:7px 12px; }
+.ul-entry-details label,.ul-folder-editor label,.ul-expression-form label { display:grid; gap:6px; color:#777; margin:12px 0; }
+.ul-entry-details input,.ul-entry-details select,.ul-folder-editor input,.ul-folder-editor select,.ul-expression-form input,.ul-expression-form textarea { width:100%; min-height:40px; border:1px solid #e2e2e2; border-radius:9px; background:white; padding:8px 10px; }
+.ul-folder-editor,.ul-expression-form { padding:16px 20px; margin:0 0 20px; border:1px solid #e7e7e7; border-radius:14px; }
+.ul-folder-editor>button,.ul-expression-form>button { margin-right:8px; }
+.ul-empty { padding:64px 12px; color:#939393; text-align:center; }
+.ul-empty>button { min-height:42px; border:1px solid #e4e4e4; border-radius:12px; background:white; padding:8px 14px; }
+.ul-error { display:flex; gap:12px; color:#a63c3c; padding:12px; background:#fff7f6; border-radius:10px; }
+.ul-error>button { border:0; background:none; color:inherit; text-decoration:underline; }
+.ul-loading { color:#999; font-size:12px; }
+.unified-library :focus-visible,.dw-conversation-dialog :focus-visible { outline:2px solid #8caa94; outline-offset:2px; }
+@media (hover:hover) { .dw-task-recommendation:hover,.dw-conversation-dialog.is-menu>button:hover,.ul-icon:hover,.ul-folder-row:hover,.ul-entry-main:hover { background:#f5f5f5; } }
+@media (max-width:1100px) { .dw-compose-area { width:min(82%,960px); } }
+@media (max-width:700px) {
+ .ul-layout { grid-template-columns:minmax(0,1fr); gap:14px; }
+ .ul-folders { display:flex; flex-wrap:wrap; gap:4px; max-height:180px; overflow:auto; }
+ .ul-folders>button { width:auto; }
+ .ul-folder-caption { margin:0; padding:0 8px; }
+ .ul-folder-row { max-width:190px; }
+ .ul-header { align-items:flex-start; flex-direction:column; gap:14px; }
+ .ul-header h1 { font-size:25px; }
+ .ul-header>div:last-child { width:100%; }
+ .ul-header>div:last-child>button { flex:1; }
+ .ul-notebook>summary>small { display:none; }
+ .ul-entry-details { margin-left:0; }
+}
+@media (max-width:540px) {
+ .dw-compose-area { width:calc(100% - 28px); }
+ .dw-compose-area.is-welcome { top:30%; }
+ .dw-compose-greeting { font-size:27px; margin-bottom:28px; }
+ .dialogue .dw-composer { min-height:56px; padding:5px 6px; border-radius:28px; }
+ .dw-task-recommendations { gap:4px; margin:22px 0 0; }
+ .dw-task-recommendation { gap:11px; padding:8px 10px; }
+ .dw-task-recommendation strong { font-size:13px; }
+ .dw-task-recommendation small { font-size:11px; }
+ .dw-task-recommendation>svg:last-child { display:none; }
+ .dw-chat-frame { --chat-fade-bottom:72px; }
+ .ul-entry-row { gap:6px; }
+ .ul-entry-main { gap:8px; }
+}
+@media (max-height:600px) { .dw-compose-area.is-welcome { top:18%; }.dw-compose-greeting { font-size:25px; margin-bottom:20px; }.dw-task-recommendations { margin-top:12px;gap:0; }.dw-task-recommendation { min-height:42px; padding-block:4px; }.dw-task-recommendation small { display:none; }.dw-chat-frame { --chat-fade-bottom:40px; } }
+@media (prefers-reduced-motion:reduce) { .dw-task-recommendation,.dw-conversation-row { transition:none; } }
+.ul-bulk .ul-export { margin-left:auto; color:#727272; }
+
+/* Compact chat chrome: keep the manuscript clear; other pages retain their
+   own headings, type scale and navigation. Controls stay at least 44px tall. */
+.dw-main-chat > .dw-header { height:52px; padding-block:4px; }
+.dw-main-chat .dw-header > .dw-chat-header-actions { display:flex; flex:0 1 auto; align-items:center; gap:10px; margin-left:auto; }
+.dw-main-chat .dw-chat-frame { --chat-fade-top:14px; --chat-fade-bottom:30px; }
+.dw-main-chat .dw-message { font-size:17px; line-height:1.8; }
+.dw-main-chat .dw-message h1,.dw-main-chat .dw-message h2,.dw-main-chat .dw-message h3 { font-size:21px; }
+.dw-main-chat > .dw-compose-area { width:min(78%,820px); }
+@media (max-width:540px) {
+  .dw-main-chat > .dw-header { padding-inline:12px; }
+  .dw-main-chat .dw-header > .dw-chat-header-actions { gap:7px; }
+  .dw-main-chat > .dw-compose-area { width:calc(100% - 40px); }
+  .dw-main-chat .dw-message { font-size:16px; }
+  .dw-main-chat .dw-message h1,.dw-main-chat .dw-message h2,.dw-main-chat .dw-message h3 { font-size:20px; }
+  .dw-main-chat .dw-compose-greeting { font-size:24px; }
+  .dw-main-chat .dw-composer textarea { font-size:15px; }
+}
+@media (orientation:landscape) and (max-height:650px) {
+  .dw-main-chat .dw-chat-frame { --chat-fade-top:8px; --chat-fade-bottom:18px; }
+  .dw-main-chat > .dw-compose-area { padding-bottom:max(6px,env(safe-area-inset-bottom)); }
+}
+
+.dialogue .dw-composer textarea { font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; font-size:16px; }
+
+.ul-original-inline { white-space:pre-wrap; overflow-wrap:anywhere; font-size:16px; line-height:1.8; }
+
+.dw-main-chat .dw-teaching-version { min-width:60px; min-height:44px; padding:0 12px; border:1px solid color-mix(in srgb,currentColor 12%,transparent); border-radius:999px; background:transparent; color:inherit; font:inherit; font-size:12px; cursor:pointer; }
+.dw-main-chat .dw-teaching-version:disabled { cursor:default; opacity:.5; }
+.dw-main-chat .dw-teaching-version:focus-visible { outline:2px solid currentColor; outline-offset:3px; }

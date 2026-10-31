@@ -1,0 +1,13 @@
+interface:
+  display_name: 拾语 PhraseNest·分题型精讲与作文批改
+  short_description: 按个人学习习惯讲解阅读、七选五、完形和语法，指导应用文与读后续写审题及批改
+  default_prompt: 使用 $zhibi-english-exam-tutor，按我的讲解习惯处理这份英语题或作文，并说明关键证据和可迁移方法。
+  icon_small: assets/icon.svg
+  icon_large: assets/icon.svg
+policy:
+  products:
+  - chatgpt
+  - codex
+  - api
+  - atlas
+  allow_implicit_invocation: true

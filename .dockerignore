@@ -1,0 +1,16 @@
+**
+!package.json
+!package-lock.json
+!next.config.ts
+!tsconfig.json
+!next-env.d.ts
+!src/
+!src/**
+!public/
+!public/**
+!deploy/
+!deploy/node/
+!deploy/node/Dockerfile
+!scripts/
+!scripts/persistent-start.mjs
+!scripts/persistence-policy.mjs

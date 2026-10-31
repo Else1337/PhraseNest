@@ -1,0 +1,79 @@
+{
+  "name": "phrasenest",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "node scripts/dev-secure.mjs --port 3002",
+    "build": "node scripts/build-public.mjs",
+    "build:next": "node scripts/build-public.mjs",
+    "start": "next start --port 3002",
+    "lint": "eslint src",
+    "test": "node --test tests/*.test.mjs",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "dev:vinext": "vinext dev --port 3001",
+    "build:vinext": "vinext build && node scripts/prepare-worker-deployment.mjs",
+    "start:vinext": "wrangler dev --config dist/server/wrangler.json",
+    "deploy:vinext": "node scripts/prepare-worker-deployment.mjs && vinext-cloudflare deploy --config dist/server/wrangler.json",
+    "skills:build": "node scripts/build-exam-tutor-skill.mjs && node scripts/build-writing-review-skill.mjs",
+    "skills:check": "node scripts/build-exam-tutor-skill.mjs --check && node scripts/build-writing-review-skill.mjs --check"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "0.1.100",
+    "@ai-sdk/deepseek": "3.0.67",
+    "@fontsource/noto-serif-sc": "5.3.1",
+    "@mastra/cloudflare-d1": "1.4.3",
+    "@mastra/core": "1.78.0",
+    "@mastra/libsql": "1.26.2",
+    "@mastra/memory": "1.38.0",
+    "@mastra/pg": "1.31.2",
+    "@phosphor-icons/react": "^2.1.10",
+    "ai": "7.0.143",
+    "bullmq": "5.58.5",
+    "drizzle-orm": "0.45.2",
+    "ioredis": "5.7.0",
+    "mammoth": "1.13.0",
+    "minio": "8.0.5",
+    "motion": "^13.1.0",
+    "next": "16.4.2",
+    "postgres": "3.4.7",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "streamdown": "2.7.0",
+    "unpdf": "^1.6.0",
+    "zod": "4.1.12"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.54.1",
+    "@types/node": "22.19.19",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vinext/cloudflare": "^1.0.0-beta.6",
+    "@vitejs/plugin-react": "^6.1.1",
+    "@vitejs/plugin-rsc": "^0.5.34",
+    "drizzle-kit": "0.31.10",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.4.2",
+    "playwright-core": "^1.62.1",
+    "react-server-dom-webpack": "^19.2.8",
+    "typescript": "5.9.3",
+    "vinext": "^1.0.0-beta.8",
+    "vite": "^8.2.2",
+    "wrangler": "^4.127.0"
+  },
+  "type": "module",
+  "overrides": {
+    "@cloudflare/workers-types": "5.20260826.1",
+    "undici": "7.30.0"
+  },
+  "allowScripts": {
+    "workerd@1.20260826.1": true,
+    "esbuild@0.18.20": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true,
+    "esbuild@0.28.1": true
+  }
+}

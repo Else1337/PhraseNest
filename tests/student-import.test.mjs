@@ -1,0 +1,44 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp} from 'node:fs/promises';
+import {randomUUID} from 'node:crypto';
+import {learnerModuleUrl} from './learner-module-loader.mjs';
+process.env.STUDENT_PROJECT_DATA_DIR=await mkdtemp('D:/CodexBuilds/zhibi-native-context/import-');
+process.env.ZHIBI_PERSISTENCE_MODE='';process.env.STUDENT_STORE_DATABASE_URL='';process.env.LEARNING_DATABASE_URL='';
+const imports=await import(await learnerModuleUrl('../src/lib/teacher/student-import.ts'));
+const auth=await import(await learnerModuleUrl('../src/lib/auth/auth-store.ts'));
+const classes=await import(await learnerModuleUrl('../src/lib/teacher/class-store.ts'));
+const files=await import(await learnerModuleUrl('../src/lib/storage/file-store.ts'));
+test('CSV supports BOM, quotes and leading-zero usernames; malformed and duplicate rows are identified',()=>{
+  const rows=imports.parseStudentCsv('\uFEFF用户名,姓名\r\n001,"陈,同学"\r\n002,"林""同学"\r\n001,重复');
+  assert.equal(rows[0].username,'001');assert.equal(rows[0].displayName,'陈,同学');assert.equal(rows[1].displayName,'林"同学');assert.match(rows[2].error,/重复/);
+  assert.throws(()=>imports.parseStudentCsv('用户名,姓名\n001,"未闭合'),/闭合/);
+});
+test('preview does not create accounts; missing class ownership is rejected',async()=>{
+  const teacher=randomUUID(),group=await classes.createClass(teacher,'隔离班');
+  await assert.rejects(imports.previewStudentImport(randomUUID(),group.id,'用户名,姓名\nunit001,同学'),e=>e.status===403);
+  await imports.previewStudentImport(teacher,group.id,'用户名,姓名\nunit001,同学');
+  assert.equal((await auth.studentAccountAvailability(['unit001']))[0].exists,false);
+});
+test('resumable batch keeps existing students private, retries do not duplicate, activation is one-use, originals untouched',async()=>{
+  const teacher=randomUUID(),group=await classes.createClass(teacher,'隔离导入班'),batch=randomUUID();
+  const existing=await auth.registerStudent({username:'foreign001',displayName:'已有同学',password:'original-password'});
+  const before=JSON.parse(await files.readStoreText('student-auth.json')).students.find(s=>s.id===existing.id);
+  const csv='用户名,姓名\nforeign001,不应覆盖\n'+Array.from({length:21},(_,n)=>`batch_${String(n).padStart(3,'0')},同学${n}`).join('\n');
+  await imports.startStudentImport(teacher,group.id,batch,csv);await imports.runStudentImport(teacher,batch);
+  assert.equal((await imports.studentImportStatus(teacher,batch)).created,20);assert.equal((await imports.studentImportStatus(teacher,batch)).done,false);
+  await imports.runStudentImport(teacher,batch);await imports.startStudentImport(teacher,group.id,batch,csv);await imports.runStudentImport(teacher,batch);
+  const final=await imports.studentImportStatus(teacher,batch);assert.equal(final.created,21);assert(final.done);
+  assert.equal((await classes.listTeacherClasses(teacher))[0].studentIds.length,21);assert.equal(await classes.teacherOwnsStudent(teacher,existing.id),false);
+  assert.deepEqual(JSON.parse(await files.readStoreText('student-auth.json')).students.find(s=>s.id===existing.id),before);
+  await assert.rejects(imports.studentImportStatus(randomUUID(),batch),e=>e.status===404);
+  assert.equal('secret' in final,false);assert.doesNotMatch(JSON.stringify(final),/activationHash|tokenHash|passwordHash/);
+  const exported=await imports.exportStudentActivations(teacher,batch),line=exported.split('\r\n')[1],code=line.match(/"([a-f0-9]{24})"/)[1];
+  await assert.rejects(auth.authenticateStudent({username:'batch_000',password:'wrong-password'}));
+  await auth.activateStudent({username:'batch_000',code,password:'own-password-123'});
+  assert.equal((await auth.authenticateStudent({username:'batch_000',password:'own-password-123'})).username,'batch_000');
+  assert.doesNotMatch(await imports.exportStudentActivations(teacher,batch),/"batch_000"/);
+  assert.equal((await imports.recentStudentImports(teacher,group.id))[0].id,batch);
+  await assert.rejects(auth.activateStudent({username:'batch_000',code,password:'another-password'}));
+  assert.equal(await files.readStoreText('learner-context/'+existing.id+'.json'),null);
+});

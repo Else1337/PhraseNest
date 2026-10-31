@@ -1,0 +1,77 @@
+{
+  "schema_version": "1.0.0",
+  "genre": "practical",
+  "rubric": {
+    "id": "practical-reference-15-v1",
+    "max_score": 15,
+    "authority": "public_reference",
+    "source_url": "https://www.bilibili.com/read/cv21071141/",
+    "note": "Illustrative teaching sample, not a prediction validated by teachers."
+  },
+  "input": {
+    "prompt_status": "missing",
+    "source_status": "not_applicable",
+    "student_text": "Dear Tom, I suggest you to join the English club. The activity is meaningful. Yours, Li Hua",
+    "word_count": 18,
+    "ocr_uncertain": false
+  },
+  "assessment": {
+    "status": "not_scored",
+    "predicted_score": null,
+    "plausible_range": null,
+    "band": null,
+    "confidence": "not_applicable",
+    "reason": "The task prompt is absent; content coverage and actual requirements cannot be checked.",
+    "missing_evidence": ["original task prompt"]
+  },
+  "overview": "The invitation intent is visible but task completion is unknown without the prompt.",
+  "dimensions": [
+    {
+      "dimension": "grammar",
+      "strength": "The main proposal is understandable.",
+      "weakness": "Verb pattern after suggest is incorrect.",
+      "evidence": "I suggest you to join the English club.",
+      "action": "Use suggest that you join, or advise you to join."
+    },
+    {
+      "dimension": "task_content",
+      "strength": "The English club is identified.",
+      "weakness": "The described value is generic; relevance is uncertain without the prompt.",
+      "evidence": "The activity is meaningful.",
+      "action": "If the task asks for details, provide one concrete club activity and its benefit."
+    }
+  ],
+  "issues": [
+    {
+      "id": "e1",
+      "label": "E",
+      "subtype": "COLLOCATION",
+      "location": "sentence 1",
+      "original_quote": "I suggest you to join the English club.",
+      "impact": "medium",
+      "certainty": "high",
+      "why": "Suggest does not normally take object + to-infinitive in this usage.",
+      "minimal_fix": "I suggest that you join the English club.",
+      "upgrade": "I advise you to join the English club.",
+      "transfer_rule": "suggest doing / suggest that sb (should) do; advise sb to do."
+    },
+    {
+      "id": "u1",
+      "label": "U",
+      "subtype": "TASK_VAGUE",
+      "location": "sentence 2",
+      "original_quote": "The activity is meaningful.",
+      "impact": "medium",
+      "certainty": "medium",
+      "why": "Correct sentence, but it is not informative if the task requires an invitation reason.",
+      "minimal_fix": null,
+      "upgrade": "Members exchange book recommendations and practise speaking in pairs.",
+      "transfer_rule": "Replace generic value adjectives with one action plus one reader benefit."
+    }
+  ],
+  "upgrade_plan": ["Supply the exact prompt for task-specific evaluation.", "Explain one specific club activity only if relevant to the task."],
+  "teaching": null,
+  "revised_text": null,
+  "teacher_score": null,
+  "metadata": {"example_only": true}
+}
