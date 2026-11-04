@@ -8,18 +8,18 @@ export async function exportCloudbase(client,filename,password){
  const readTables=async()=>{
   const tables={};
   for(const name of names){
-   const rows=[];let columns;
+   const rows=[];let columns,found=true;
    for(let offset=0;;offset+=500){
     const query=new URLSearchParams({select:'*',limit:'500',offset:String(offset)});
     if(columns)query.set('order',columns.map(key=>key+'.asc.nullsfirst').join(','));
     let page;
     try{page=await(await client.request('/v1/rdb/rest/'+name+'?'+query)).json();}
-    catch(error){if(offset===0&&error.status===404&&!['zhibi_store','zhibi_blobs','zhibi_memory_routes'].includes(name)){missing.add(name);break;}throw error;}
+    catch(error){if(offset===0&&error.status===404&&!['zhibi_store','zhibi_blobs','zhibi_memory_routes'].includes(name)){missing.add(name);found=false;break;}throw error;}
     assert(Array.isArray(page),'SOURCE_ROWS_REQUIRED');
     if(page.length&&!columns){columns=Object.keys(page[0]).sort();assert(columns.every(key=>/^[a-z_][a-z_0-9]*$/.test(key)));offset=-500;continue;}
     rows.push(...page);if(page.length<500)break;
    }
-   if(!missing.has(name))tables[name]=rows;
+   if(found)tables[name]=rows;
   }
   return tables;
  };

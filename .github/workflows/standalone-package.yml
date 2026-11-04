@@ -34,6 +34,7 @@ jobs:
           docker compose -f deploy/standalone/compose.yaml --env-file deploy/standalone/.env run --rm -e POSTGRES_PASSWORD --entrypoint node app standalone/smoke.mjs
       - name: Restart without deleting data
         run: |
+          docker compose -f deploy/standalone/compose.yaml --env-file deploy/standalone/.env run --rm worker node standalone/worker.mjs --once
           docker compose -f deploy/standalone/compose.yaml --env-file deploy/standalone/.env restart app
           docker compose -f deploy/standalone/compose.yaml --env-file deploy/standalone/.env up -d --wait app
           docker compose -f deploy/standalone/compose.yaml --env-file deploy/standalone/.env exec -T app node standalone/cli.mjs verify

@@ -14,6 +14,9 @@ let target,admin;
 try{
  const auth={version:1,students:[{id:owner,username:'ci_student',displayName:'合成验收学生',passwordSalt:salt,passwordHash:scryptSync(password,salt,64).toString('hex'),createdAt:new Date().toISOString()}],sessions:[],activations:[]};
  for(const [key,content]of [['student-auth.json',JSON.stringify(auth)],['standalone-ci.json',JSON.stringify({pinned:['只用于自动验收'],notes:'learning history'})],[`native-memory/${owner}.json`,native]])await sql`SELECT zhibi_store_commit(${key},${key+'.backup'},0,${content})`;
+ const record=(await sql`SELECT zhibi_store_read(${`native-memory/${owner}.json`}) AS record`)[0].record;
+ const routes=[{kind:'message',id:'synthetic-memory-route'}];
+ assert((await sql`SELECT zhibi_memory_commit(${owner},${record.revision},${native},${sql.json(routes)}) AS result`)[0].result.applied);
  const bytes=Buffer.from('Synthetic original essay. No real student data.');const key=`dialogue-uploads/${owner}/ci.bin`;
  await mkdir(process.env.STANDALONE_ORIGINALS_DIR,{recursive:true});await writeFile(originalPath(key),bytes,{flag:'wx'});
  await sql`INSERT INTO zhibi_blobs(key,writer_id,size,sha256,state) VALUES(${key},'synthetic-ci',${bytes.length},${digest(bytes)},'ready')`;
@@ -27,6 +30,7 @@ try{
  const targetUrl=new URL(databaseUrl());targetUrl.pathname='/phrasenest_restore';target=postgres(targetUrl.href,{max:1,onnotice:()=>undefined});await initialize(target);
  process.env.STANDALONE_ORIGINALS_DIR='/tmp/ci-restored-originals';const receipt=await restore(target,archive,secret);assert(receipt.originals===1);
  assert.equal((await target`SELECT content FROM zhibi_store WHERE key=${`native-memory/${owner}.json`}`)[0].content,native,'Native memory must be copied byte-for-byte');
+ const restoredRoutes=(await target`SELECT zhibi_memory_route('message',${target.json(['synthetic-memory-route'])}) AS routes`)[0].routes;assert.equal(restoredRoutes[0]?.owner,owner,'Memory ID ownership index must survive migration');
  const authAfter=JSON.parse((await target`SELECT content FROM zhibi_store WHERE key='student-auth.json'`)[0].content);assert.equal(authAfter.students[0].passwordHash,auth.students[0].passwordHash);
  await target.end({timeout:3});target=postgres(targetUrl.href,{max:1,onnotice:()=>undefined});assert((await verify(target)).ok,'A fresh database connection must read the restored state');
  await assert.rejects(()=>restore(target,archive,secret),/TARGET_MUST_BE_EMPTY/);
