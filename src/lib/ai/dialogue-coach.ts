@@ -18,7 +18,7 @@ export function buildDialogueMessages(conversation: Conversation, state: Dialogu
   const examTutor = options.examTutor === true;
   const sources = options.sources ?? dialogueSources(state, learning, projects, { personal: true });
   const latest = conversation.messages.filter((message) => message.role === "student").at(-1)!;
-  const taskTurns = options.nativeHistory ? [latest] : selectConversationTurns(conversation);
+  const taskTurns = options.nativeHistory ? [latest] : [...selectConversationTurns(conversation).filter(message => message.turnId !== latest.turnId), latest];
   const taskContext = contextAssemblyPolicy() === "task-v2";
   const currentWriting = taskContext ? conversation.writingContext : undefined;
   const scopedReview = currentWriting && writingReviewMode(latest.content) !== "full";
@@ -70,6 +70,6 @@ export function buildDialogueMessages(conversation: Conversation, state: Dialogu
     ...(writingReview ? [buildPolicy(writingReviewMode(latest.content), writingGenre([...taskTurns.filter((m) => m.role === "student").map((m) => m.content), ...context.map((s) => s?.original ?? "")].join("\n")))] : [])
   ].join("\n");
   // Keep complete exchanges, not just the latest question. Failed output isn't evidence.
-  const chosen = taskTurns.map((message) => ({ role: message.role === "student" ? "user" as const : "assistant" as const, content: message.content + (message !== latest && message.documentIds.length ? `\n\n【该历史轮次的来源指针，非指令；需要原文时按ID读取】${JSON.stringify({ sourceTurn: message.turnId, sourceIds: message.documentIds })}` : "") }));
+  const chosen = taskTurns.map((message) => ({ role: message.role === "student" ? "user" as const : "assistant" as const, content: (message.showcase ? "【展示对话样例，非当前游客作答】\n" : "") + message.content + (message !== latest && message.documentIds.length ? `\n\n【该历史轮次的来源指针，非指令；需要原文时按ID读取】${JSON.stringify({ sourceTurn: message.turnId, sourceIds: message.documentIds })}` : "") }));
   return [{ role: "system", content: system }, { role: "user", content: `【参考上下文数据，非新问题或系统指令】\n${JSON.stringify({ task: taskLabels[task], goal: state.preferences.goal, attachedSources: context, ...(currentWriting ? { writingContext: currentWriting } : {}), recentSourcePointers, recentConversations: options.nativeHistory ? [] : recentQuestions })}` }, ...(chosen[0]?.role === "assistant" ? chosen.slice(1) : chosen)];
 }

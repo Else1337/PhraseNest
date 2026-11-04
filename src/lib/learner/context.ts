@@ -18,6 +18,7 @@ import { createLiveLearningContext } from "./live-context";
 import { contextAssemblyPolicy } from "@/lib/ai/context-assembly";
 import { learningSourceVersion, readSourcePassage, type SourceReadOptions } from "@/lib/student/source-passages";
 import type { EvidenceAction, LearningChange } from "./change-model";
+import { searchClassSources } from "@/lib/teacher/materials";
 
 const once = <T>(read: () => Promise<T>) => { let result: Promise<T> | undefined; return () => result ??= read(); };
 
@@ -31,6 +32,7 @@ export function createLearningQueries(studentId: string, workspace: DialogueWork
   const daily = once(() => readDailyReading(studentId));
   const sourceCache = new Map<string, ReturnType<typeof ownedReadingSource>>();
   const source = (id: string) => {
+    if(id.startsWith("class-source:"))return ownedReadingSource(studentId,currentWorkspace,id);
     let pending = sourceCache.get(id);
     if (!pending) { pending = ownedReadingSource(studentId, currentWorkspace, id); sourceCache.set(id, pending); }
     return pending;
@@ -40,7 +42,7 @@ export function createLearningQueries(studentId: string, workspace: DialogueWork
     return createScopedHybridSearch(studentId, dialogueSources(currentWorkspace, learning, writing), signal);
   });
   let legacySearcher = makeSearcher();
-  const search: ScopedSearch = async (query,kind,offset=0,mode="hybrid") => {
+  const personalSearch: ScopedSearch = async (query,kind,offset=0,mode="hybrid") => {
     if(process.env.LIBRARY_READ_INDEX==="1") {
       const {libraryStore,libraryTextVersion}=await import("@/lib/library/service");const library=await libraryStore();
       const found=await library.search(studentId,query,undefined,offset,kind);
@@ -67,6 +69,7 @@ export function createLearningQueries(studentId: string, workspace: DialogueWork
     return (await legacySearcher())(query,kind,offset,mode);
   };
   const makeOverview = () => once(async () => { const status=await ensureLearningEvidence(studentId); return {...await (await evidenceStore()).overview(studentId),indexState:status.ready?"ready":"backfill_pending"}; });
+  const search:ScopedSearch=async(query,kind,offset=0,mode="hybrid")=>{const [personal,shared]=await Promise.all([personalSearch(query,kind,offset,mode),searchClassSources(studentId,query,offset,kind)]);if(!shared.results.length)return personal;const own=personal as {results?:unknown[];nextOffset?:number|null;mode?:string};return {...personal,results:[...(own.results??[]),...shared.results],nextOffset:own.nextOffset??shared.nextOffset,mode:`${own.mode??mode}+class_keyword`,notice:"本人资料与教师授权资料分别分页；教师参考不作为学生错误证据。"};};
   let overview = makeOverview();
   let liveReader: Promise<ReturnType<typeof createLiveLearningContext>> | undefined;
   const invalidateLearning = () => { overview = makeOverview(); };

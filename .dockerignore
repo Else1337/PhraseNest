@@ -11,6 +11,12 @@
 !deploy/
 !deploy/node/
 !deploy/node/Dockerfile
+!deploy/standalone/
+!deploy/standalone/*.mjs
+!deploy/standalone/Dockerfile
+!cloudbase/
+!cloudbase/migrations/
+!cloudbase/migrations/*.sql
 !scripts/
 !scripts/persistent-start.mjs
 !scripts/persistence-policy.mjs

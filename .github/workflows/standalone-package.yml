@@ -1,0 +1,60 @@
+name: Standalone package
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/standalone-deployment]
+permissions:
+  contents: write
+concurrency:
+  group: standalone-package
+  cancel-in-progress: false
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare synthetic configuration
+        run: |
+          node deploy/standalone/setup.mjs
+          mkdir -p deploy/standalone/migration
+          docker compose -f deploy/standalone/compose.yaml --env-file deploy/standalone/.env config --quiet
+      - name: Build Linux amd64 container
+        run: docker build --progress=plain -f deploy/standalone/Dockerfile -t phrasenest:standalone .
+      - name: Run isolated application and database
+        run: docker compose -f deploy/standalone/compose.yaml --env-file deploy/standalone/.env up -d --wait app
+      - name: Verify login, migration and original readback
+        run: |
+          set -a
+          . deploy/standalone/.env
+          set +a
+          docker compose -f deploy/standalone/compose.yaml --env-file deploy/standalone/.env run --rm -e POSTGRES_PASSWORD --entrypoint node app standalone/smoke.mjs
+      - name: Restart without deleting data
+        run: |
+          docker compose -f deploy/standalone/compose.yaml --env-file deploy/standalone/.env restart app
+          docker compose -f deploy/standalone/compose.yaml --env-file deploy/standalone/.env up -d --wait app
+          docker compose -f deploy/standalone/compose.yaml --env-file deploy/standalone/.env exec -T app node standalone/cli.mjs verify
+      - name: Package code and runnable images, never volumes or private configuration
+        run: |
+          mkdir -p bundle
+          git archive --format=tar.gz -o bundle/source.tar.gz HEAD
+          docker save phrasenest:standalone postgres:16-bookworm | gzip -1 > bundle/images-linux-amd64.tar.gz
+          cp deploy/standalone/README.md bundle/START-HERE.md
+          printf 'commit=%s\narchitecture=linux/amd64\ndata=not-included\n' "$GITHUB_SHA" > bundle/BUILD.txt
+          cd bundle
+          sha256sum source.tar.gz images-linux-amd64.tar.gz START-HERE.md BUILD.txt > SHA256SUMS
+          zip -0 ../PhraseNest-standalone-linux-amd64.zip ./*
+      - name: Publish tested package as a branch prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "standalone-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}" PhraseNest-standalone-linux-amd64.zip --target "$GITHUB_SHA" --prerelease --title "PhraseNest standalone ${GITHUB_RUN_NUMBER}" --notes "Linux amd64 Docker images, source, checksums and deployment instructions. Tested with synthetic data only. Real migration data and credentials are not included."
+      - name: Failure diagnostics
+        if: failure()
+        run: docker compose -f deploy/standalone/compose.yaml --env-file deploy/standalone/.env logs --tail 60 app init postgres
+      - name: Stop isolated services, preserve no real data
+        if: always()
+        run: docker compose -f deploy/standalone/compose.yaml --env-file deploy/standalone/.env down

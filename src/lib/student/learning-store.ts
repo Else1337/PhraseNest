@@ -1,5 +1,5 @@
 import { readDailyPublications } from "./daily-publications";
-import { uniqueLibraryRecords } from "./library-records";
+import { libraryDisposition, uniqueLibraryRecords } from "./library-records";
 import { applyLibraryEdits } from "./library-edits";
 import { createHash, randomUUID } from "node:crypto";
 import { mutateStoreText, readStoreText } from "@/lib/storage/file-store";
@@ -561,6 +561,44 @@ export async function synchronizeProjectsLearning(studentId: string, projects: S
 export async function exportStudentLearningRows(studentId: string) {
   const owner = z.string().uuid().parse(studentId), store = await readStore();
   return Object.fromEntries(Object.entries(store).map(([key, value]) => [key, Array.isArray(value) ? value.filter((row: { studentId: string }) => row.studentId === owner) : value]));
+}
+
+// Only library-visible rows cross this boundary: no evidence, scores, private
+// dialogue archive, correction snapshots or working/long-term memory.
+export async function exportGuestLibrarySeed(studentId: string) {
+  const hub = await getStudentLearningHub(studentId);
+  const knowledge = [...hub.vocabulary, ...hub.materials];
+  const sourceIds = new Set(knowledge.flatMap(item => item.sourceIds));
+  return {
+    knowledge, folders: hub.folders,
+    sources: hub.sources.filter(item => sourceIds.has(item.id)),
+    importedHistory: (hub.importedHistory ?? []).filter(item => item.kind !== "chatgpt" && libraryDisposition(item).keep)
+  };
+}
+export type GuestLibrarySeed = Awaited<ReturnType<typeof exportGuestLibrarySeed>>;
+
+export async function initializeGuestLearning(studentId: string, seed: GuestLibrarySeed) {
+  const owner = z.string().uuid().parse(studentId);
+  const ids = Object.fromEntries(seed.knowledge.map(item => [item.id, stableId("guest-knowledge", `${owner}:${item.id}`)]));
+  const knowledge = seed.knowledge.map(item => knowledgeSchema.parse({ ...item, id: ids[item.id], studentId: owner, reviewStage: 0, lastReviewedAt: null, nextReviewAt: new Date().toISOString(), classification: null }));
+  await mutateStoreText(storeKey, text => {
+    // Validate, but do not normalize/reclassify any existing account while seeding
+    // a visitor. Only the appended visitor rows may change.
+    const store = text === null ? structuredClone(emptyStore) : JSON.parse(text) as LearningStore;
+    learningStoreSchema.parse(store);
+    store.folders ??= []; store.sources ??= []; store.importedHistory ??= [];
+    if (store.knowledge.some(item => item.studentId === owner) || store.importedHistory.some(item => item.studentId === owner)) throw new Error("GUEST_LIBRARY_ALREADY_INITIALIZED");
+    store.knowledge.push(...knowledge);
+    store.folders.push(...seed.folders.map(item => folderSchema.parse({ ...item, studentId: owner })));
+    store.sources.push(...seed.sources.map(item => sourceSchema.parse({ ...item, studentId: owner })));
+    store.importedHistory.push(...seed.importedHistory.map(({ sourceUrl: _url, ...item }) => {
+      void _url;
+      return { ...item, studentId: owner };
+    }));
+    learningStoreSchema.parse(store);
+    return { text: JSON.stringify(store), result: undefined };
+  });
+  return ids;
 }
 
 export async function getStudentDailyHistory(studentId: string) {

@@ -116,13 +116,12 @@ export async function POST(request: Request) {
         if (!known && !await ownsStudentKnowledge(student.id, action.itemId)) throw new WorkspaceError("语料不存在", 404);
         valid.add(action.itemId);
       }
-      const workspace = await applyWorkspaceAction(student.id, action, valid);
-      if (action.action === "conversation_delete") {
-        const { learnerStore } = await import("@/lib/learner/service");
-        await (await learnerStore()).deleteConversation(student.id, action.conversationId);
-        const { deleteNativeConversation } = await import("@/lib/ai/mastra-memory");
-        await deleteNativeConversation(student.id, action.conversationId);
+      if(action.action==="conversation_delete"){
+        const {deleteManagedConversation}=await import("@/lib/admin/deletions");
+        const result=await deleteManagedConversation(`student:${student.id}`,student.id,action.conversationId,"学生删除本人对话");
+        return Response.json({workspace:result.workspace,cleanup:result.cleanup},{headers});
       }
+      const workspace = await applyWorkspaceAction(student.id, action, valid);
       if (action.action === "mark" && new URL(request.url).searchParams.get("view") === "mark") return Response.json({ itemId: action.itemId, mark: workspace.marks[action.itemId] }, { headers });
       return Response.json({ workspace: new URL(request.url).searchParams.get("view") === "memory" ? memoryWorkspaceSnapshot(workspace, beijingDate()) : workspace }, { headers });
     }

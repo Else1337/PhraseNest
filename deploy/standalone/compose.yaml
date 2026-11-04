@@ -1,0 +1,81 @@
+name: phrasenest
+x-runtime: &runtime
+  STANDALONE_DB_HOST: postgres
+  APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Run node setup.mjs first}
+  STANDALONE_ORIGINALS_DIR: /var/lib/phrasenest/originals
+services:
+  postgres:
+    image: postgres:16-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: phrasenest
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run node setup.mjs first}
+    volumes: [database:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U postgres -d phrasenest"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  init:
+    image: ${PHRASENEST_IMAGE:-phrasenest:standalone}
+    build:
+      context: ../..
+      dockerfile: deploy/standalone/Dockerfile
+    user: root
+    command: [node, standalone/cli.mjs, init]
+    environment:
+      <<: *runtime
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    depends_on:
+      postgres: {condition: service_healthy}
+    volumes: [originals:/var/lib/phrasenest/originals]
+  app:
+    image: ${PHRASENEST_IMAGE:-phrasenest:standalone}
+    build:
+      context: ../..
+      dockerfile: deploy/standalone/Dockerfile
+    restart: unless-stopped
+    init: true
+    environment:
+      <<: *runtime
+      ZHIBI_PUBLIC_ORIGIN: ${ZHIBI_PUBLIC_ORIGIN:-http://localhost:3000}
+      ADMIN_BOOTSTRAP_CODE: ${ADMIN_BOOTSTRAP_CODE:?Run node setup.mjs first}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_TEXT_MODEL: ${DEEPSEEK_TEXT_MODEL:-deepseek-chat}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      DASHSCOPE_OCR_MODEL: ${DASHSCOPE_OCR_MODEL:-qwen3.5-ocr}
+      AI_EMBEDDING_API_KEY: ${AI_EMBEDDING_API_KEY:-}
+      AI_EMBEDDING_BASE_URL: ${AI_EMBEDDING_BASE_URL:-}
+      AI_EMBEDDING_MODEL: ${AI_EMBEDDING_MODEL:-}
+      DAILY_TASK_WORKER_KEY: ${DAILY_TASK_WORKER_KEY}
+      LIBRARY_WORKER_KEY: ${LIBRARY_WORKER_KEY}
+      LEARNER_WORKER_KEY: ${LEARNER_WORKER_KEY}
+      LEARNER_EXTERNAL_WORKER: '1'
+      LEARNER_TRACKING_ENABLED: '1'
+      LEARNER_REFLECTION_ENABLED: ${LEARNER_REFLECTION_ENABLED:-0}
+      LIBRARY_INGEST_ENABLED: ${LIBRARY_INGEST_ENABLED:-1}
+      LIBRARY_READ_INDEX: ${LIBRARY_READ_INDEX:-1}
+      LIBRARY_BACKGROUND_ENABLED: ${LIBRARY_BACKGROUND_ENABLED:-0}
+      ZHIBI_GUEST_MODE: ${ZHIBI_GUEST_MODE:-1}
+    depends_on:
+      init: {condition: service_completed_successfully}
+    ports: ["${APP_BIND:-127.0.0.1}:${APP_PORT:-3000}:9000"]
+    volumes: [originals:/var/lib/phrasenest/originals, ./migration:/migration]
+  worker:
+    image: ${PHRASENEST_IMAGE:-phrasenest:standalone}
+    restart: unless-stopped
+    init: true
+    network_mode: service:app
+    command: [node, standalone/worker.mjs]
+    depends_on:
+      app: {condition: service_healthy}
+    environment:
+      DAILY_TASK_WORKER_KEY: ${DAILY_TASK_WORKER_KEY}
+      LIBRARY_WORKER_KEY: ${LIBRARY_WORKER_KEY}
+      LEARNER_WORKER_KEY: ${LEARNER_WORKER_KEY}
+      STANDALONE_RUN_MODEL_TASKS: ${STANDALONE_RUN_MODEL_TASKS:-0}
+volumes:
+  database:
+  originals:

@@ -7,5 +7,5 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const query = await searchParams;
   if ("password" in query || "username" in query) redirect("/login");
   if (await getCurrentStudent()) redirect("/");
-  return <StudentAuthPanel initialError={query.error === "credentials" ? "登录未完成，请核对账号密码后重试。" : query.error === "register" ? "注册未完成，请核对信息或使用已有账号登录。" : ""} />;
+  return <StudentAuthPanel initialError={query.error === "guest" ? "体验空间暂未准备好，请稍后再试。" : query.error === "credentials" ? "登录未完成，请核对账号密码后重试。" : query.error === "register" ? "注册未完成，请核对信息或使用已有账号登录。" : ""} />;
 }

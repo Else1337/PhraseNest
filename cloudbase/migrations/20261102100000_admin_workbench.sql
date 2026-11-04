@@ -1,0 +1,31 @@
+-- Additive admin workbench schema; apply only after release approval.
+BEGIN;
+CREATE TABLE IF NOT EXISTS lp_admin_audit (id TEXT PRIMARY KEY,actor TEXT NOT NULL,action TEXT NOT NULL,target TEXT NOT NULL,reason TEXT NOT NULL,created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS lp_admin_audit_time ON lp_admin_audit(created_at,id);
+CREATE TABLE IF NOT EXISTS lp_admin_conversations (student_id TEXT NOT NULL,id TEXT NOT NULL,title TEXT NOT NULL,preview TEXT NOT NULL,updated_at TEXT NOT NULL,message_count INTEGER NOT NULL,review_status TEXT NOT NULL DEFAULT 'pending',note TEXT NOT NULL DEFAULT '',deleted_at TEXT,PRIMARY KEY(student_id,id));
+CREATE INDEX IF NOT EXISTS lp_admin_conversations_time ON lp_admin_conversations(deleted_at,updated_at,id);
+CREATE TABLE IF NOT EXISTS lp_admin_deletions (student_id TEXT NOT NULL,conversation_id TEXT NOT NULL,actor TEXT NOT NULL,reason TEXT NOT NULL,created_at TEXT NOT NULL,purge_at TEXT NOT NULL,status TEXT NOT NULL,backup TEXT, error TEXT,PRIMARY KEY(student_id,conversation_id));
+CREATE INDEX IF NOT EXISTS lp_admin_deletions_pending ON lp_admin_deletions(status,purge_at);
+CREATE TABLE IF NOT EXISTS lp_admin_locks (id TEXT PRIMARY KEY,version BIGINT NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS lp_admin_limits (subject TEXT PRIMARY KEY,content TEXT NOT NULL,updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS lp_admin_calls (id TEXT PRIMARY KEY,student_id TEXT NOT NULL,turn_id TEXT,conversation_id TEXT,surface TEXT NOT NULL,model TEXT NOT NULL,day TEXT NOT NULL,month TEXT NOT NULL,reserved BIGINT NOT NULL,input_tokens BIGINT,output_tokens BIGINT,cached_tokens BIGINT,status TEXT NOT NULL,created_at TEXT NOT NULL,settled_at TEXT);
+CREATE INDEX IF NOT EXISTS lp_admin_calls_period ON lp_admin_calls(month,student_id,day);
+CREATE INDEX IF NOT EXISTS lp_admin_calls_turn ON lp_admin_calls(student_id,turn_id);
+CREATE INDEX IF NOT EXISTS lp_admin_calls_day ON lp_admin_calls(day,surface,model);
+CREATE INDEX IF NOT EXISTS lp_admin_legacy_usage_time ON lp_context_usage(occurred_at,student_id);
+CREATE TABLE IF NOT EXISTS lp_admin_policy (student_id TEXT NOT NULL,turn_id TEXT NOT NULL,input_hash TEXT NOT NULL,category TEXT NOT NULL,day TEXT NOT NULL,created_at TEXT NOT NULL,revoked_at TEXT,revoked_by TEXT,reason TEXT NOT NULL DEFAULT '',PRIMARY KEY(student_id,turn_id));
+CREATE INDEX IF NOT EXISTS lp_admin_policy_day ON lp_admin_policy(student_id,day,created_at);
+CREATE TABLE IF NOT EXISTS lp_admin_pauses (student_id TEXT PRIMARY KEY,until_at BIGINT NOT NULL,source_turn TEXT,updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS lp_class_materials (id TEXT PRIMARY KEY,teacher_id TEXT NOT NULL,document_id TEXT NOT NULL,version TEXT NOT NULL,title TEXT NOT NULL,content TEXT NOT NULL,class_ids TEXT NOT NULL,status TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS lp_class_materials_owner ON lp_class_materials(teacher_id,updated_at,id);
+DO $guard$
+DECLARE item TEXT;
+BEGIN
+  FOREACH item IN ARRAY ARRAY['lp_admin_audit','lp_admin_conversations','lp_admin_deletions','lp_admin_locks','lp_admin_limits','lp_admin_calls','lp_admin_policy','lp_admin_pauses','lp_class_materials'] LOOP
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',item);
+    EXECUTE format('REVOKE ALL ON TABLE public.%I FROM PUBLIC,anon,authenticated',item);
+  END LOOP;
+END $guard$;
+INSERT INTO public.zhibi_schema_migrations(version) VALUES('2026-11-02-admin-workbench-v1') ON CONFLICT(version) DO NOTHING;
+COMMIT;
+

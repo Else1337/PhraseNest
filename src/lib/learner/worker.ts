@@ -1,5 +1,7 @@
 import { learnerStore } from "./service";
 import { getDeepSeekConfig } from "@/lib/ai/config";
+import {runModelScope,modelOwnerScope} from "@/lib/admin/model-scope";
+import {assertAiAvailable,UsagePolicyError} from "@/lib/admin/policy";
 
 export function reflectionEnabled() {
   return process.env.LEARNER_REFLECTION_ENABLED !== "0" && Boolean(process.env.DEEPSEEK_API_KEY) && !(typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers");
@@ -12,6 +14,7 @@ export async function pumpLearning(studentId?: string, force = false) {
   try {
     const store = await learnerStore(), job = await store.claim(studentId, force);
     if (!job) return { status: "idle" as const };
+    try{await assertAiAvailable(job.studentId);}catch(error){if(!(error instanceof UsagePolicyError))throw error;await store.db.query("UPDATE lp_jobs SET status='retry',ready_at=?,lease_until=0,attempts=0,error='AI 暂停，保留待整理任务' WHERE student_id=? AND token=?",[error.decision.pausedUntil??Date.now()+3600_000,job.studentId,job.token]);return {status:"policy_paused" as const};}
     const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date());
     const reservation = 40_000;
     const configured = Number(process.env.LEARNER_DAILY_TOKEN_LIMIT ?? 120_000);
@@ -27,7 +30,7 @@ export async function pumpLearning(studentId?: string, force = false) {
       const output = await runReflection(store, job, async (entries, previous) => {
         if (!entries.length) { used = 0; return { result: { focus: [], suggestions: [], unresolved: [] }, tokens: 0 }; }
         const { dialogueLanguageModel } = await import("@/lib/ai/dialogue-agent");
-        const result = await analyzeLearning(store, job, entries, previous, dialogueLanguageModel(getDeepSeekConfig()), signal);
+        const result = await runModelScope(await modelOwnerScope(job.studentId,"reflection"),()=>analyzeLearning(store, job, entries, previous, dialogueLanguageModel(getDeepSeekConfig()), signal));
         used = result.tokens;
         return result;
       });

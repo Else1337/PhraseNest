@@ -18,7 +18,8 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+export const POST=withStudentModelScope(handleScopedPost);
+async function handleScopedPost(request: Request) {
   const student = await getCurrentStudent();
   if (!student) return NextResponse.json({ error: "请先登录" }, { status: 401 });
   try {
@@ -38,3 +39,4 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "原图保存失败，请重试" }, { status: 500 });
   }
 }
+import {withStudentModelScope} from "@/lib/admin/request-scope";

@@ -45,7 +45,8 @@ export async function GET(request: Request) {
     return Response.json(result, { headers: new URL(request.url).searchParams.has("export") ? { ...headers, "Content-Disposition": 'attachment; filename="zhibi-daily-reading.json"' } : headers });
   } catch (error) { return fail(error); }
 }
-export async function POST(request: Request) {
+export const POST=withStudentModelScope(handleScopedPost);
+async function handleScopedPost(request: Request) {
   const student = await getCurrentStudent(); if (!student) return Response.json({ error: "请先登录" }, { status: 401, headers });
   try {
     const body = await request.text(); if (body.length > 15_000) throw new WorkspaceError("内容过长，请分次提交", 413);
@@ -107,7 +108,7 @@ export async function POST(request: Request) {
         if (item && item.leaseUntil > Date.now()) throw new WorkspaceError("询问正在解答", 409);
         if (state.inquiries.some((entry) => entry.leaseUntil > Date.now())) throw new WorkspaceError("请等待当前询问完成", 409);
         if (!item) { if (state.inquiries.length >= 300) throw new WorkspaceError("询问记录已满，请先导出", 422); item = { id: action.id, articleId: article.id, blockId: block.id, quote, question: action.question!, answer: "", status: "generating", createdAt: now, leaseUntil: 0 }; state.inquiries.push(item); }
-        item.status = "generating"; item.leaseUntil = Date.now() + 90_000; return { inquiry: item, claimed: true };
+        item.policy={category:"unclassified",allowed:false,notice:"分类尚未完成",count:0,pausedUntil:null,violation:false}; item.status = "generating"; item.leaseUntil = Date.now() + 90_000; return { inquiry: item, claimed: true };
       }
       const type = ({ mark: "self_report", collect: "collected", reveal: "answer_revealed", answer: "answer", presented: "presented" } as const)[action.action];
       const duplicatePresentation = action.action === "presented" && state.events.some((event) => event.type === "presented" && event.articleId === article.id && event.itemId === itemId);
@@ -119,14 +120,14 @@ export async function POST(request: Request) {
       const { safeLearning, retainLearningRound } = await import("@/lib/learner/service");
       const retain = (status: "generating" | "complete" | "failed") => safeLearning(() => retainLearningRound(student.id, { id: action.id, conversationId: action.id, question: action.question!, answer, status, createdAt: result.inquiry.createdAt }, [{ id: source.id, title: source.title, role: "每日语料原文，非学生作答", content: source.content }]));
       try {
-        await retain("generating");
         const [{ annotationMessages }, { getDeepSeekConfig }, { dialogueLanguageModel, streamDialogueAgent }] = await Promise.all([import("@/lib/ai/annotation-context"), import("@/lib/ai/config"), import("@/lib/ai/dialogue-agent")]);
         const history = reading.inquiries.filter((item) => item.id !== action.id && item.status === "complete" && item.articleId === article.id && item.blockId === block.id && item.quote === quote).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-        for await (const delta of streamDialogueAgent({ model: dialogueLanguageModel(getDeepSeekConfig()), modelName: getDeepSeekConfig().model, messages: annotationMessages(quote, action.question!, block.body, [source], history), resources: [source], focusedAnnotation: true, studentId: student.id, conversationId: action.id, turnId: action.id, signal: AbortSignal.any([signal, AbortSignal.timeout(80_000)]), onUsage: async value => saveTurnUsage((await learnerStore()).db, student.id, value), onReceipt: () => undefined })) { answer += delta; if (answer.length > 19_000) throw new Error("Answer too long"); emit(delta); }
+        for await (const delta of streamDialogueAgent({ model: dialogueLanguageModel(getDeepSeekConfig(),undefined,undefined,"daily_inquiry"), modelName: getDeepSeekConfig().model, messages: annotationMessages(quote, action.question!, block.body, [source], history.filter(i=>!i.policy||i.policy.allowed)), resources: [source], focusedAnnotation: true, studentId: student.id, conversationId: action.id, turnId: action.id, signal: AbortSignal.any([signal, AbortSignal.timeout(80_000)]),onPolicy:async decision=>{await mutateDailyReading(student.id,state=>{const item=state.inquiries.find(i=>i.id===action.id);if(!item)throw new WorkspaceError("问题不存在",404);item.policy=decision;});await retain("generating");}, onUsage: async value => saveTurnUsage((await learnerStore()).db, student.id, value), onReceipt: () => undefined })) { answer += delta; if (answer.length > 19_000) throw new Error("Answer too long"); emit(delta); }
         const inquiry = await mutateDailyReading(student.id, (state) => { const item = state.inquiries.find((entry) => entry.id === action.id)!; item.answer = answer; item.status = "complete"; item.leaseUntil = 0; return item; });
         await retain("complete");
         return { inquiry };
-      } catch {
+      } catch(error) {
+        if(error instanceof UsagePolicyError||error instanceof PolicyFrameError){await mutateDailyReading(student.id,state=>{const item=state.inquiries.find(i=>i.id===action.id);if(item){item.answer=error instanceof UsagePolicyError?error.message:"";item.status=error instanceof UsagePolicyError?"complete":"failed";item.leaseUntil=0;item.policy=error instanceof UsagePolicyError?error.decision:{...{category:"unclassified",allowed:false,notice:"分类尚未完成",count:0,pausedUntil:null,violation:false},notice:error.message};}});throw error;}
         await mutateDailyReading(student.id, (state) => { const item = state.inquiries.find((entry) => entry.id === action.id)!; item.answer = answer.slice(0, 20_000); item.status = "failed"; item.leaseUntil = 0; });
         await retain("failed");
         throw new WorkspaceError("问题已保留，解答未完成，可重试", 503);
@@ -135,3 +136,5 @@ export async function POST(request: Request) {
     return Response.json(result, { headers });
   } catch (error) { return fail(error); }
 }
+import {withStudentModelScope} from "@/lib/admin/request-scope";
+import {UsagePolicyError,PolicyFrameError} from "@/lib/admin/policy";

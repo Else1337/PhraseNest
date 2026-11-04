@@ -1,6 +1,7 @@
 import {NextResponse,type NextRequest} from "next/server";
 import {getStudentBySessionToken} from "@/lib/auth/auth-store";
 import {getTeacherByToken} from "@/lib/auth/teacher-store";
+import {ADMIN_COOKIE,adminByToken} from "@/lib/admin/auth";
 import {isSameStudentOrigin} from "@/lib/auth/request-origin";
 import {checkAccountBudget,checkAuthBudget,readBoundedText,RequestSafetyError,safetyResponse} from "@/lib/security/request-safety";
 
@@ -15,11 +16,15 @@ export async function proxy(request:NextRequest){
       if(!body||typeof body!=="object")throw new RequestSafetyError(400,"输入格式不正确");
       const identity=String(body.username??body.email??"unknown");await checkAuthBudget(`${path.includes("teacher")?"teacher":"student"}:${identity}`,request);
     }
-    if(path.startsWith("/api/student/")||path.startsWith("/api/ai/")){
+    if(path.startsWith("/api/admin/")&&path!=="/api/admin/auth"){
+      const token=request.cookies.get(ADMIN_COOKIE)?.value,admin=token?await adminByToken(token):null;
+      if(!admin)throw new RequestSafetyError(401,"请先登录管理员账号");
+      await checkAccountBudget(`admin:${admin.id}`,path,write);
+    }else if(path.startsWith("/api/student/")||path.startsWith("/api/ai/")){
       const token=request.cookies.get("zhibi_student_session")?.value;
       const student=token?await getStudentBySessionToken(token):null;
       if(!student)throw new RequestSafetyError(401,"请先登录");
-      await checkAccountBudget(`student:${student.id}`,path,write);
+      await checkAccountBudget(`student:${student.id}`,path,write,{unlimitedExperience:student.isGuest===true});
     }else if(path.startsWith("/api/teacher/")){
       const token=request.cookies.get("zhibi_teacher_session")?.value;
       const teacher=token?await getTeacherByToken(token):null;

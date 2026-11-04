@@ -27,6 +27,7 @@ function isWorkersRuntime(): boolean {
 
 async function persistent() {
   if (isWorkersRuntime()) return null;
+  if (process.env.ZHIBI_PERSISTENCE_MODE === "standalone") return (await import("./standalone-store")).standaloneBackend();
   if (process.env.ZHIBI_PERSISTENCE_MODE === "cloudbase") return (await import("./cloudbase-store")).cloudbaseBackend();
   if (!(process.env.STUDENT_STORE_DATABASE_URL || process.env.LEARNING_DATABASE_URL)) {
     if (process.env.ZHIBI_PERSISTENCE_MODE === "postgres") throw new Error("PERSISTENT_STORE_CONFIGURATION_REQUIRED");

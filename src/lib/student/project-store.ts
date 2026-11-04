@@ -1,4 +1,4 @@
-import { readStoreText, replaceStoreFile } from "@/lib/storage/file-store";
+import { mutateStoreText, readStoreText, replaceStoreFile } from "@/lib/storage/file-store";
 import { z } from "zod";
 import type { StudentProjectView } from "@/lib/domain/student-project";
 
@@ -125,6 +125,21 @@ async function readStore() {
 
 export async function listStoredStudentProjects(ownerStudentId: string): Promise<StudentProjectView[]> {
   return (await readStore()).projects.filter((record) => record.ownerStudentId === ownerStudentId).map((record) => structuredClone(record.project));
+}
+
+// Preserve essay source IDs/catalogue keys without importing ELSE's diagnosis.
+export async function initializeGuestReferenceProjects(studentId: string, projects: StudentProjectView[]) {
+  const owner = z.string().uuid().parse(studentId);
+  if (!projects.length) return;
+  await mutateStoreText(storeKey, text => {
+    const store = text === null ? { version: 2 as const, projects: [] } : storeSchema.parse(JSON.parse(text));
+    if (store.projects.some(item => item.ownerStudentId === owner)) throw new Error("GUEST_PROJECTS_ALREADY_INITIALIZED");
+    for (const item of projects) {
+      const { report: _report, ...source } = item; void _report;
+      store.projects.push({ ownerStudentId: owner, project: storedStudentProjectSchema.parse({ ...source, layers: [], status: "draft", statusLabel: "展示原稿", detail: "ELSE 展示资料；不是当前游客的作答" }) });
+    }
+    return { text: JSON.stringify(storeSchema.parse(store)), result: undefined };
+  });
 }
 
 export async function saveStoredStudentProject(input: unknown, ownerStudentId: string): Promise<StudentProjectView> {

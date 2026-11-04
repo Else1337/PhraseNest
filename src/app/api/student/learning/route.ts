@@ -40,7 +40,8 @@ const actionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("reflect") }).strict(),
   z.object({ action: z.literal("window"), conversationId: z.string().uuid(), turnId: z.string().uuid(), before: z.number().int().min(0).max(4).default(0), after: z.number().int().min(0).max(4).default(0), offset: z.number().int().min(0).default(0) }).strict()
 ]);
-export async function POST(request: Request) {
+export const POST=withStudentModelScope(handleScopedPost);
+async function handleScopedPost(request: Request) {
   const student = await getCurrentStudent();
   if (!student) return Response.json({ error: "请先登录" }, { status: 401, headers });
   // Do not allow another site to trigger paid work with an ambient login cookie.
@@ -58,3 +59,4 @@ export async function POST(request: Request) {
     return Response.json({ error: "未能完成，请检查资料归属或稍后重试" }, { status: 503, headers });
   }
 }
+import {withStudentModelScope} from "@/lib/admin/request-scope";

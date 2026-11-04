@@ -60,13 +60,20 @@ export const toolProtocolMiddleware: LanguageModelMiddleware = {
     try { result = await doStream(); }
     catch (error) { console.warn("[provider-request-failed]", providerFailureMetadata(error)); throw error; }
     const available = new Set(params.tools?.filter((tool) => tool.type === "function").map((tool) => tool.name));
-    let held = "", protocol = false, nativeCall = false;
+    let held = "", protocol = false, nativeCall = false,activeTextId="";
     const pending: ReturnType<typeof decodeToolProtocol>["calls"] = [];
     let protocolError: unknown;
     return { ...result, stream: result.stream.pipeThrough(new TransformStream({
       transform(part, controller) {
-        if (part.type === "tool-call") nativeCall = true;
+        if(part.type==="tool-input-start"||part.type==="tool-call"){
+          nativeCall=true;
+          // Preserve provider order: the closing policy tag may be in our
+          // small DSML look-behind when a native tool call starts. Forward
+          // that text BEFORE the call so the output gate can authorize it.
+          if(held&&!protocol&&activeTextId){controller.enqueue({type:"text-delta",id:activeTextId,delta:held});held="";}
+        }
         if (part.type === "text-delta") {
+          activeTextId=part.id;
           held += part.delta;
           if (hasToolProtocol(held)) protocol = true;
           if (held.length > 32_000) throw new Error("工具协议过长");

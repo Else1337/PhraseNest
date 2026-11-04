@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import {runModelScope,modelOwnerScope} from "@/lib/admin/model-scope";
+import {assertAiAvailable,UsagePolicyError} from "@/lib/admin/policy";
 import { mutateStoreText, readStoreText } from "@/lib/storage/file-store";
 import { claimDailyTask, publishDailyRun, readScheduledTasks, scheduledTaskOwners, updateDailyRun } from "./scheduled-tasks";
 
@@ -22,14 +24,17 @@ export async function processDailyTask(options: { studentId?: string; external?:
   });
   if (!claimed) return { status: "busy" };
   try {
+    const {maintainAdminDeletions}=await import("@/lib/admin/deletions");await maintainAdminDeletions();
     for (const studentId of options.studentId ? [options.studentId] : await scheduledTaskOwners()) {
+      try{await assertAiAvailable(studentId);}catch(error){if(error instanceof UsagePolicyError)continue;throw error;}
       const job = await claimDailyTask(studentId);
       if (!job) continue;
       try {
         const { generateDailyLesson } = await import("@/lib/ai/daily-lesson-agent");
-        const lesson = await generateDailyLesson(studentId, job.task, job.run, AbortSignal.timeout(420_000), async (draft, evidence) => {
+        const previous=(await readScheduledTasks(studentId)).editions.slice(0,7).map(e=>({date:e.date,title:e.title}));
+        const lesson = await runModelScope(await modelOwnerScope(studentId,"scheduled_lesson"),()=>generateDailyLesson(studentId, job.task, job.run, AbortSignal.timeout(420_000), async (draft, evidence) => {
           await updateDailyRun(studentId, job.run, (_state, run) => { run.draft = draft; run.evidence = evidence; run.phase = "reviewing"; });
-        }, (await readScheduledTasks(studentId)).editions.slice(0, 7).map(e => ({ date: e.date, title: e.title })));
+        }, previous));
         await publishDailyRun(studentId, job.run, lesson);
         return { status: "complete", runId: job.run.id };
       } catch (error) {

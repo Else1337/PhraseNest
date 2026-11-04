@@ -1,3 +1,7 @@
+import { meteredTransport } from "@/lib/admin/model-scope";
+import {legacyPolicy} from "@/lib/admin/legacy-policy";
+import {UsagePolicyError,PolicyFrameError} from "@/lib/admin/policy";
+import {UsageLimitError} from "@/lib/admin/metering";
 type TextContent = { type: "text"; text: string };
 type ImageContent = { type: "image_url"; image_url: { url: string; detail?: "low" | "high" | "original" | "auto" } };
 
@@ -25,12 +29,14 @@ type ChatCompletionResponse = {
 export async function* streamChatCompletion(options: {
   baseUrl: string; apiKey: string; request: ChatCompletionRequest; signal?: AbortSignal; timeoutMs?: number;
 }): AsyncGenerator<string> {
+  const policy=legacyPolicy(false);
+  if(policy)options={...options,request:{...options.request,messages:[{role:"system",content:policy.instruction},...options.request.messages]}};
   const timeout = AbortSignal.timeout(options.timeoutMs ?? 85_000);
   const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
   let response: Response | undefined;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      response = await fetch(completionUrl(options.baseUrl), {
+      response = await meteredTransport()(completionUrl(options.baseUrl), {
         method: "POST", headers: { Authorization: `Bearer ${options.apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({ ...options.request, stream: true }), signal, cache: "no-store"
       });
@@ -39,7 +45,7 @@ export async function* streamChatCompletion(options: {
       await response.body?.cancel();
       await waitForRetry(retryAfterMs(response, attempt + 1), signal);
     } catch (error) {
-      if (signal.aborted || attempt || error instanceof AIProviderError) throw error;
+      if (signal.aborted || attempt || error instanceof AIProviderError || error instanceof UsagePolicyError || error instanceof PolicyFrameError || error instanceof UsageLimitError) throw error;
       await waitForRetry(350, signal);
     }
   }
@@ -65,11 +71,12 @@ export async function* streamChatCompletion(options: {
       buffer += decoder.decode(value, { stream: !done });
       const rows = buffer.split(/\r?\n/);
       buffer = rows.pop() ?? "";
-      for (const row of rows) { const delta = parseRow(row); if (delta) yield delta; }
-      if (done) { if (buffer) { const delta = parseRow(buffer); if (delta) yield delta; } break; }
+      for (const row of rows) { const delta = parseRow(row);const visible=delta&&policy?await policy.frame.push(delta):delta; if (visible) yield visible; }
+      if (done) { if (buffer) { const delta = parseRow(buffer);const visible=delta&&policy?await policy.frame.push(delta):delta; if (visible) yield visible; } break; }
     }
     if (!ended && !finishReason) throw new AIProviderError("回复连接提前中断，请重试");
     if (finishReason === "length") throw new AIProviderError("回复达到长度限制，请拆分问题后重试");
+    policy?.frame.assertReady();
   } finally { await reader.cancel().catch(() => undefined); reader.releaseLock(); }
 }
 
@@ -131,6 +138,8 @@ export async function createChatCompletion(options: {
   signal?: AbortSignal;
   maxAttempts?: number;
 }) {
+  const policy=legacyPolicy(options.request.response_format?.type==="json_object");
+  if(policy)options={...options,request:{...options.request,messages:[{role:"system",content:policy.instruction},...options.request.messages]}};
   const controller = new AbortController();
   let timedOut = false;
   const operationId = crypto.randomUUID();
@@ -146,7 +155,7 @@ export async function createChatCompletion(options: {
   try {
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
-        const response = await fetch(completionUrl(options.baseUrl), {
+        const response = await meteredTransport()(completionUrl(options.baseUrl), {
           method: "POST",
           headers: {
             Authorization: `Bearer ${options.apiKey}`,
@@ -180,8 +189,9 @@ export async function createChatCompletion(options: {
         if (payload.choices?.[0]?.finish_reason === "length") throw new AIProviderError("识别或回答达到长度限制，请按页拆分", 422, { retryable: false });
         const content = payload.choices?.[0]?.message?.content?.trim();
         if (!content) throw new AIProviderError("AI 服务没有返回有效内容", 502, { retryable: true });
-        return { content, traceId: payload.id, operationId, attempts: attempt };
+        return { content:policy?await policy.parse(content):content, traceId: payload.id, operationId, attempts: attempt };
       } catch (error) {
+        if(error instanceof UsagePolicyError||error instanceof PolicyFrameError||error instanceof UsageLimitError)throw error;
         if (error instanceof Error && error.name === "AbortError") throw error;
         const providerError = error instanceof AIProviderError
           ? error
@@ -194,6 +204,7 @@ export async function createChatCompletion(options: {
     }
     throw new AIProviderError("AI 服务暂时不可用", 503);
   } catch (error) {
+    if(error instanceof UsagePolicyError||error instanceof PolicyFrameError||error instanceof UsageLimitError)throw error;
     if (error instanceof Error && error.name === "AbortError") {
       if (!timedOut && options.signal?.aborted) throw new AIProviderError("AI 请求已取消", 499, { retryable: false });
       throw new AIProviderError("AI 服务响应超时", 504, { retryable: true });

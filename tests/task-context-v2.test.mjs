@@ -1,11 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
+import {readFile,mkdtemp} from 'node:fs/promises';
 import ts from 'typescript';
 import {InMemoryStore} from '@mastra/core/storage';
 import {learnerModuleUrl} from './learner-module-loader.mjs';
 
+process.env.STUDENT_PROJECT_DATA_DIR=await mkdtemp('D:/CodexBuilds/zhibi-native-context/task-v2-admin-');
+process.env.ZHIBI_PERSISTENCE_MODE='';process.env.STUDENT_STORE_DATABASE_URL='';process.env.LEARNING_DATABASE_URL='';process.env.LEARNER_DATABASE_URL='';
 const load=async name=>import(await learnerModuleUrl('../src/'+name+'.ts'));
+const billing=await load('lib/admin/model-scope');
 const meter=await load('lib/ai/usage-meter');
 const passages=await load('lib/student/source-passages');
 const writing=await load('lib/ai/writing-context');
@@ -104,6 +107,7 @@ test('draft metadata round-trips through existing owner store and rejects stale 
 });
 
 test('real Mastra and DeepSeek serialization complete search -> located read -> answer with exact per-step metering (mock transport only)',async()=>{
+ await billing.runModelScope({studentId:crypto.randomUUID(),guest:true,surface:'local_mock'},async()=>{
  const teacher={...source,id:crypto.randomUUID(),role:'老师案例',content:'UNRELATED_OPENING\n\n'+Array.from({length:85},()=> 'Other material.\n\n').join('')+'The runner stayed resilient.\nHe kept going.\n\nEND'};
  const search=createScopedHybridSearch(crypto.randomUUID(),[teacher]),wire=[],receipts=[];
  const studentId=crypto.randomUUID(),conversationId=crypto.randomUUID(),turnId=crypto.randomUUID();
@@ -118,11 +122,12 @@ test('real Mastra and DeepSeek serialization complete search -> located read -> 
   if(step===3){const original=JSON.parse(body.messages.filter(m=>m.role==='tool').at(-1).content);assert(original.rows.some(row=>row.text.includes('resilient')));assert(!original.rows.some(row=>row.text.includes('UNRELATED_OPENING')));}
   const chunk={id:'synthetic-usage',object:'chat.completion.chunk',created:1,model:'deepseek-chat'};
   const delta=step<3?{role:'assistant',tool_calls:[{index:0,id:'call-'+step,type:'function',function:{name,arguments:JSON.stringify(args)}}]}:{role:'assistant',content:'Resilient describes his ability to keep going.'};
-  return new Response([JSON.stringify({...chunk,choices:[{index:0,delta,finish_reason:null}]}),JSON.stringify({...chunk,choices:[{index:0,delta:{},finish_reason:step<3?'tool_calls':'stop'}],usage:{prompt_tokens:step*10,completion_tokens:step,prompt_cache_hit_tokens:0}}),'[DONE]'].map(s=>'data: '+s+'\n\n').join(''),{headers:{'Content-Type':'text/event-stream'}});
+  return new Response([JSON.stringify({...chunk,choices:[{index:0,delta:{role:'assistant',content:'<pn-policy>{"category":"english_learning"}</pn-policy>'},finish_reason:null}]}),JSON.stringify({...chunk,choices:[{index:0,delta,finish_reason:null}]}),JSON.stringify({...chunk,choices:[{index:0,delta:{},finish_reason:step<3?'tool_calls':'stop'}],usage:{prompt_tokens:step*10,completion_tokens:step,prompt_cache_hit_tokens:0}}),'[DONE]'].map(s=>'data: '+s+'\n\n').join(''),{headers:{'Content-Type':'text/event-stream'}});
  };
  const model=dialogueLanguageModel({apiKey:'synthetic-key-not-real',baseUrl:'https://provider.invalid/v1',model:'deepseek-chat'},undefined,transport);
  let answer='';for await(const part of streamDialogueAgent({model,messages:[{role:'system',content:'你是智笔 PenBot。按需检索原文。'},{role:'user',content:'找跑步语料里的resilient。'}],resources:[],storage:new InMemoryStore(),studentId,conversationId,turnId,nativeConversation,signal:new AbortController().signal,onReceipt:()=>{},onUsage:async value=>receipts.push(value),search,readSource:async(id,line,offset,options)=>id===teacher.id?passages.readSourcePassage(teacher,line,offset,options):{error:true}}))answer+=part;
  assert.match(answer,/Resilient/);assert.equal(wire.length,3);assert.deepEqual(receipts.map(r=>r.inputTokens),[10,20,30]);assert.equal(receipts.reduce((n,r)=>n+r.inputTokens,0),60);assert(receipts.every(r=>meter.isStepMetered(r.fingerprint)));
  const rollback=process.env.ZHIBI_CONTEXT_ASSEMBLY;process.env.ZHIBI_CONTEXT_ASSEMBLY='baseline';
  try{const tools=createDialogueTools([source],()=>{},new AbortController().signal);const result=await tools.read_learning_source.execute({sourceId:source.id,startLine:1,startOffset:0},{});assert(result.rows);assert.equal(result.sourceVersion,undefined);}finally{process.env.ZHIBI_CONTEXT_ASSEMBLY=rollback;}
+ });
 });

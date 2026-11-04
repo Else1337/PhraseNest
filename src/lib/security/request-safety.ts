@@ -55,13 +55,19 @@ export async function checkAuthBudget(subject:string,request:Request){
     if(wait)throw new RequestSafetyError(429,"尝试次数较多，请稍后再试",wait);}
 }
 export const isAiRoute=(path:string)=>path.startsWith("/api/ai/")||/\/(reply|reading|generate|classify|exam-imports|uploads|documents|profile)$/.test(path);
-export async function checkAccountBudget(account:string,path:string,write:boolean){
+export async function checkGuestEntryBudget(request:Request){
+  const now=Date.now(),ip=trustedClientIp(request);
+  const keys=["auth-global",...(ip?[`guest-entry:${ip}`]:[])];
+  for(const key of keys){const wait=await change(key,s=>take(s,"minute",key==="auth-global"?limit("ZHIBI_AUTH_GLOBAL_PER_MINUTE",150):60,60_000,now));
+    if(wait)throw new RequestSafetyError(429,"进入体验的请求较多，请稍后再试",wait);}
+}
+export async function checkAccountBudget(account:string,path:string,write:boolean,options:{unlimitedExperience?:boolean}={}){
   const now=Date.now(),ai=write&&isAiRoute(path),day=new Date(now+8*3600_000).toISOString().slice(0,10);
   const wait=await change(account,state=>{
     for(const [key,value] of Object.entries(state.counters))if(now-value.start>172_800_000)delete state.counters[key];
     let retry=take(state,write?"write-minute":"read-minute",write?120:360,60_000,now);
-    if(ai&&!retry)retry=take(state,"ai-hour",limit("ZHIBI_AI_REQUESTS_PER_HOUR",60),3600_000,now);
-    if(ai&&!retry)retry=take(state,`ai-day:${day}`,limit("ZHIBI_AI_REQUESTS_PER_DAY",300),86_400_000,now);
+    if(ai&&!retry&&!options.unlimitedExperience)retry=take(state,"ai-hour",limit("ZHIBI_AI_REQUESTS_PER_HOUR",60),3600_000,now);
+    if(ai&&!retry&&!options.unlimitedExperience)retry=take(state,`ai-day:${day}`,limit("ZHIBI_AI_REQUESTS_PER_DAY",300),86_400_000,now);
     if(write){state.audit.push({at:now,action:path.slice(0,140),outcome:retry?"limited":"admitted"});state.audit=state.audit.slice(-100);}
     return retry;
   });

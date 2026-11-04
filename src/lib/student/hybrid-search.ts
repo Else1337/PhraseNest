@@ -3,6 +3,7 @@ import { mutateStoreText, readStoreText } from "@/lib/storage/file-store";
 import { createLearningResourceReader, type LearningResource } from "./learning-resources";
 import { learningSourceVersion } from "./source-passages";
 import { contextAssemblyPolicy } from "@/lib/ai/context-assembly";
+import { meteredTransport } from "@/lib/admin/model-scope";
 
 const dimensions = 256;
 export const embeddingTimeouts = { indexingMs: 30_000, queryMs: 2_500 } as const;
@@ -45,7 +46,7 @@ export async function resourceChunks(resources: readonly LearningResource[]): Pr
 }
 async function embed(texts: string[], signal?: AbortSignal, timeoutMs = 8_000) {
   const { apiKey, url, model } = config();
-  const response = await fetch(url, { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, input: texts, dimensions, encoding_format: "float" }), signal: AbortSignal.any([signal ?? new AbortController().signal, AbortSignal.timeout(timeoutMs)]) });
+  const response = await meteredTransport()(url, { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, input: texts, dimensions, encoding_format: "float" }), signal: AbortSignal.any([signal ?? new AbortController().signal, AbortSignal.timeout(timeoutMs)]) });
   if (!response.ok) throw new EmbeddingServiceError(response.status);
   const parsed = z.object({ data: z.array(z.object({ index: z.number().int().nonnegative(), embedding: z.array(z.number().finite()).length(dimensions) })) }).parse(await response.json());
   const ordered = parsed.data.sort((a, b) => a.index - b.index);

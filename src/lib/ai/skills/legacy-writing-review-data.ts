@@ -1,4 +1,4 @@
-// Generated teaching bundle; personal dialogue and library links omitted in public snapshot.
+// Sanitized public teaching bundle.
 const data = {
   "name": "zhibi-gaokao-writing-review",
   "description": "面向浙江新高考英语应用文（15分）与读后续写（25分）的证据驱动批改、模拟评分、问题归因、分层纠错、内容/情节提升与按需深度教学。收到作文原题、学生原稿或照片后使用；支持明确要求的语料收集与独立修改稿，不把AI估分冒充正式阅卷分数。",

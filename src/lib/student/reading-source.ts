@@ -4,8 +4,10 @@ import { getStudentReadingSlice } from "./learning-store";
 import { listStoredStudentProjects } from "./project-store";
 import { readStoreText } from "@/lib/storage/file-store";
 import { exportLibraryEdits } from "./library-edits";
+import { publishedClassSources } from "@/lib/teacher/materials";
 
 export async function ownedReadingSource(studentId: string, state: DialogueWorkspace, id: string) {
+  if(id.startsWith("class-source:"))return (await publishedClassSources(studentId,{id}))[0]??null;
   if ((await exportLibraryEdits(studentId)).entries[id]?.deleted) return null;
   const local = state.documents.find((item) => item.id === id);
   const documents = { ...state, documents: local ? [local] : [] };

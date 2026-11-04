@@ -5,7 +5,7 @@ import type { Conversation, DialogueMessage } from "@/lib/student/dialogue-model
 // OM manages long native threads. The non-native fallback preserves completed
 // exchanges rather than silently discarding them with lexical heuristics.
 export function selectConversationTurns(conversation: Conversation): DialogueMessage[] {
-  const ids = new Set(conversation.messages.filter((m) => m.role === "student" && m.status === "complete").map((m) => m.turnId));
+  const ids = new Set(conversation.messages.filter((m) => m.role === "student" && m.status === "complete" && (!m.policy||m.policy.allowed)).map((m) => m.turnId));
   return conversation.messages.filter((m) => ids.has(m.turnId) && m.status === "complete" && m.content.trim());
 }
 

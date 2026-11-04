@@ -1,0 +1,73 @@
+import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
+import {createServer} from 'node:net';
+import {mkdtemp,cp} from 'node:fs/promises';
+import path from 'node:path';
+import {chromium} from 'playwright-core';
+import {seedGuestFixture} from './guest-fixture.mjs';
+import {learnerModuleUrl} from './learner-module-loader.mjs';
+const build=path.resolve(process.argv[2]??'');
+assert(build.startsWith(path.resolve('D:/CodexBuilds/phrasenest-admin-20261102')+path.sep+'build-'));
+const baseline=process.argv.includes('--baseline'),dev=process.argv.includes('--dev'),skipReference=process.argv.includes('--skip-reference');
+if(dev){await cp(new URL('../src/',import.meta.url),path.join(build,'src'),{recursive:true});await cp(new URL('../next.config.ts',import.meta.url),path.join(build,'next.config.ts'));}
+const directory=await mkdtemp('D:/CodexBuilds/phrasenest-admin-20261102/teacher-ui-');
+process.env.STUDENT_PROJECT_DATA_DIR=directory;
+for(const key of ['ZHIBI_PERSISTENCE_MODE','STUDENT_STORE_DATABASE_URL','LEARNING_DATABASE_URL','LEARNER_DATABASE_URL','MASTRA_DATABASE_URL','TCB_ENV','CLOUDBASE_APIKEY'])process.env[key]='';
+const load=async name=>import(await learnerModuleUrl('../src/'+name+'.ts'));
+const fixture=await seedGuestFixture(),teachers=await load('lib/auth/teacher-store'),classes=await load('lib/teacher/class-store'),auth=await load('lib/auth/auth-store'),materials=await load('lib/teacher/materials');
+const teacher=await teachers.registerTeacher({email:'teacher-ui@example.invalid',displayName:'林老师',password:'isolated-teacher-only'});
+await teachers.reviewTeacher(teacher.id,'approved');
+const classroom=await classes.createClass(teacher.id,'高二（1）班'),secondClass=await classes.createClass(teacher.id,'高二（2）班');
+await classes.joinClass(fixture.owner.id,classroom.joinCode);
+for(const [username,displayName]of [['chen','陈语安'],['shen','沈知夏'],['xu','许清和']]){const s=await auth.registerStudent({username:'ui_'+username,displayName,password:'isolated-student-only'});await classes.joinClass(s.id,classroom.joinCode);}
+for(const [n,title]of ['读后续写 · 人物情绪','应用文 · 邀请信','高二课堂 · 时态讲义','人物描写 · 动作链'].entries()){
+ const content='School material '+n+'\nI have gone through the notes.\n'+title;
+ const m=await materials.uploadTeacherMaterial(teacher.id,new TextEncoder().encode(content),title+'.txt',new AbortController().signal);
+ if(n<2)await materials.publishTeacherMaterial(teacher.id,String(m.id),{title,content,classIds:[classroom.id],publish:true});
+}
+const studentSession=await auth.createStudentSession(fixture.owner.id),session=await teachers.createTeacherSession(teacher.id);
+const probe=createServer();await new Promise(r=>probe.listen(0,'127.0.0.1',r));const port=probe.address().port;await new Promise(r=>probe.close(r));const origin='http://127.0.0.1:'+port;
+const server=spawn(process.execPath,dev?[path.join(build,'node_modules/next/dist/bin/next'),'dev','--webpack','--hostname','127.0.0.1','--port',String(port)]:[path.join(build,'server.js')],{cwd:build,windowsHide:true,stdio:['ignore','pipe','pipe'],env:{...process.env,NODE_ENV:dev?'development':'production',TEMP:dev?path.join(build,'temporary'):process.env.TEMP,TMP:dev?path.join(build,'temporary'):process.env.TMP,HOSTNAME:'127.0.0.1',PORT:String(port),ZHIBI_PUBLIC_ORIGIN:origin,ZHIBI_LOCAL_PREVIEW:dev?'1':'0',LEARNER_REFLECTION_ENABLED:'0',LEARNER_TRACKING_ENABLED:'0',LIBRARY_BACKGROUND_ENABLED:'0',LIBRARY_READ_INDEX:'0',DEEPSEEK_API_KEY:'',DASHSCOPE_API_KEY:'',AI_EMBEDDING_API_KEY:'',MASTRA_MEMORY_MODE:'legacy',MASTRA_OM_ENABLED:'0'}});
+let log='',browser;for(const stream of [server.stdout,server.stderr])stream.on('data',d=>log=(log+d).slice(-8000));
+const errors=[];const captureErrors=page=>page.on('pageerror',e=>errors.push(e.message));
+async function dismissGuide(page){const button=page.getByRole('button',{name:'我先自己逛逛',exact:true});try{await button.waitFor({state:'visible',timeout:2000});}catch(error){if(error.name!=='TimeoutError')throw error;}if(await button.isVisible())await button.click();}
+try{
+ let ready=false;for(let i=0;i<600;i++){if(await fetch(origin+'/teacher/login').then(r=>r.ok,()=>false)){ready=true;break;}if(server.exitCode!==null||log.includes('Module parse failed')||log.includes('Failed to compile'))throw Error(log);await new Promise(r=>setTimeout(r,250));}assert(ready,log);
+ browser=await chromium.launch({executablePath:'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',headless:true});
+ const student=await browser.newContext({viewport:{width:1440,height:960},reducedMotion:'reduce'});await student.addCookies([{name:'zhibi_student_session',value:studentSession.token,url:origin}]);
+ if(!skipReference){const reference=await student.newPage();captureErrors(reference);await reference.goto(origin+'/');await reference.locator('.dw-main').waitFor();await dismissGuide(reference);await reference.screenshot({path:path.join(directory,'reference-home.png')});
+ await reference.goto(origin+'/library');await reference.getByRole('heading',{name:'资料库',exact:true}).waitFor();await dismissGuide(reference);await reference.screenshot({path:path.join(directory,'reference-library.png')});}
+ const context=await browser.newContext({viewport:{width:1440,height:960},reducedMotion:'reduce'});context.setDefaultNavigationTimeout(dev?180000:30000);await context.addCookies([{name:'zhibi_teacher_session',value:session.token,url:origin}]);
+ const page=await context.newPage();captureErrors(page);await page.goto(origin+'/teacher');await dismissGuide(page);
+ if(baseline){await page.screenshot({path:path.join(directory,'before-learning.png')});await page.getByRole('button',{name:'校本资料',exact:true}).click();await page.screenshot({path:path.join(directory,'before-materials.png')});}
+ else{await verifyTeacherUi({page,context,origin,directory,classroom,secondClass,fixture,student,errors});}
+ assert.deepEqual(errors,[]);console.log(JSON.stringify({ok:true,baseline,directory},null,2));
+}catch(error){console.error(log);throw error;}finally{await browser?.close();const ended=new Promise(r=>server.once('exit',r));server.kill();await ended;}
+async function verifyTeacherUi({page,context,origin,directory,classroom,secondClass,fixture,student,errors}){
+ const checks=[];const profile={topics:[{id:'participles',title:'现在完成时中的过去分词',summary:'能看见时态线索，接下来练习不规则动词的过去分词。',status:'needs_practice',sources:2,evidence:[{id:'fixture-evidence',topic:'时态与语态',quote:'I have went through the notes before the lesson.',reason:'have 后要用过去分词；go 的过去分词是 gone。',suggestion:'I have gone through the notes before the lesson.',title:'课堂练习 · 时态',sourceId:'fixture-draft',at:new Date().toISOString(),revision:3}]}],suggestions:[],unresolved:[],version:1,updatedAt:new Date().toISOString(),stale:false,tracking:null};
+ let judgment;await page.route('**/api/teacher/students/profile?*',async route=>{const url=new URL(route.request().url());await route.fulfill({json:url.searchParams.has('evidence')?{original:{paragraph:'Before the lesson, I checked my work. I have went through the notes before the lesson. Then I started the exercise.'}}:profile});});
+ await page.route('**/api/teacher/judgments',async route=>{judgment=route.request().postDataJSON();profile.topics[0].evidence[0].reviewNote='[教师 fixture] '+judgment.note;await route.fulfill({json:{ok:true}});});
+ await page.reload();await dismissGuide(page);await page.getByRole('heading',{name:'班级学情',exact:true}).waitFor();await page.getByRole('heading',{name:'现在完成时中的过去分词',exact:true}).waitFor();
+ await page.screenshot({path:path.join(directory,'teacher-learning-desktop.png'),fullPage:true});
+ await page.getByLabel('搜索学生',{exact:true}).fill('陈语安');assert.equal(await page.getByRole('button').filter({hasText:'陈语安'}).count(),1);await page.getByLabel('搜索学生',{exact:true}).fill('');
+ await page.getByRole('button',{name:'原始上下文',exact:true}).click();await page.getByText('Before the lesson, I checked my work.',{exact:false}).waitFor();await page.getByRole('button',{name:'收起',exact:true}).click();
+ await page.getByRole('button',{name:'确认判断',exact:true}).click();await page.getByRole('dialog',{name:'确认学习判断',exact:true}).waitFor();await page.getByLabel('复核依据',{exact:true}).fill('已核对原始作答与完整语境。');await page.getByRole('button',{name:'保存复核',exact:true}).click();await page.getByRole('dialog').waitFor({state:'hidden'});assert.equal(judgment.studentId,fixture.owner.id);assert.equal(judgment.expectedRevision,3);assert.equal(judgment.judgment,'confirmed');checks.push('student roster, original context and revision-aware review');
+ await page.getByRole('button',{name:'收起侧栏',exact:true}).click();assert.equal(await page.locator('[data-collapsed]').getAttribute('data-collapsed'),'true');await page.getByRole('button',{name:'展开侧栏',exact:true}).click();
+ await page.getByRole('button',{name:'校本资料',exact:true}).click();await page.getByRole('heading',{name:'校本资料',exact:true}).waitFor();await page.getByRole('button',{name:'打开 读后续写 · 人物情绪',exact:true}).waitFor();await page.screenshot({path:path.join(directory,'teacher-materials-desktop.png'),fullPage:true});
+ await page.getByLabel('搜索教师资料',{exact:true}).fill('邀请信');assert.equal(await page.getByRole('button',{name:/^打开 /}).count(),1);await page.getByLabel('搜索教师资料',{exact:true}).fill('');await page.getByRole('button',{name:'列表视图',exact:true}).click();await page.getByRole('button',{name:'网格视图',exact:true}).click();
+ await page.getByRole('button',{name:'添加教师资料',exact:true}).click();await page.getByRole('dialog',{name:'添加校本资料',exact:true}).waitFor();await page.screenshot({path:path.join(directory,'teacher-upload-desktop.png')});
+ await page.getByLabel('选择教师资料',{exact:true}).setInputFiles({name:'空文件.txt',mimeType:'text/plain',buffer:Buffer.alloc(0)});await page.getByRole('alert').filter({hasText:'非空'}).waitFor();
+ await page.getByLabel('选择教师资料',{exact:true}).setInputFiles({name:'课堂练习.txt',mimeType:'text/plain',buffer:Buffer.from('Past participles\nI have gone through the notes before the lesson.')});await page.getByLabel('核对教师资料正文',{exact:true}).waitFor();assert.match(await page.getByLabel('核对教师资料正文',{exact:true}).inputValue(),/gone/);
+ await page.getByRole('button',{name:'保存草稿',exact:true}).click();await page.getByRole('dialog').waitFor({state:'hidden'});await page.getByRole('button',{name:'打开 课堂练习.txt',exact:true}).waitFor();await page.getByRole('button',{name:'打开 课堂练习.txt',exact:true}).click();
+ await page.getByLabel('教师资料名称',{exact:true}).fill('课堂练习 · 过去分词');await page.getByRole('button',{name:'阅读预览',exact:true}).click();await page.getByRole('button',{name:'编辑原文',exact:true}).click();await page.getByRole('checkbox',{name:classroom.name,exact:true}).check();await page.screenshot({path:path.join(directory,'teacher-review-desktop.png')});await page.getByRole('button',{name:'核对完成，发布',exact:true}).click();await page.getByRole('dialog').waitFor({state:'hidden'});
+ let shared=await (await student.request.get(origin+'/api/student/class-materials')).json();assert(shared.items.some(item=>item.title==='课堂练习 · 过去分词'));await page.getByRole('button',{name:'打开 课堂练习 · 过去分词',exact:true}).click();await page.getByRole('button',{name:'撤回发布',exact:true}).click();await page.getByRole('dialog').waitFor({state:'hidden'});shared=await (await student.request.get(origin+'/api/student/class-materials')).json();assert(!shared.items.some(item=>item.title==='课堂练习 · 过去分词'));checks.push('real text upload, draft, edit, publish, student authorization and withdrawal');
+ await page.getByRole('button',{name:'添加教师资料',exact:true}).click();await page.keyboard.press('Escape');await page.getByRole('dialog').waitFor({state:'hidden'});
+ await page.getByRole('button',{name:'添加教师资料',exact:true}).click();await page.mouse.click(3,3);await page.getByRole('dialog').waitFor({state:'hidden'});checks.push('native dialog escape and backdrop dismissal');
+ await page.getByRole('button',{name:'添加教师资料',exact:true}).click();await page.getByRole('button',{name:'直接粘贴文字',exact:true}).click();await page.getByLabel('教师资料名称',{exact:true}).fill('课堂短句');await page.getByLabel('核对教师资料正文',{exact:true}).fill('He kept going despite the difficulty.');page.once('dialog',dialog=>dialog.dismiss());await page.keyboard.press('Escape');assert.equal(await page.getByLabel('教师资料名称',{exact:true}).inputValue(),'课堂短句');await page.getByRole('button',{name:'保存草稿',exact:true}).click();await page.getByRole('dialog').waitFor({state:'hidden'});await page.getByRole('button',{name:'打开 课堂短句',exact:true}).waitFor();checks.push('paste-to-draft uses existing text ingestion; unsaved changes survive canceled dismissal');
+ await page.emulateMedia({colorScheme:'dark'});await page.screenshot({path:path.join(directory,'teacher-materials-dark.png'),fullPage:true});assert.equal(await page.locator('[data-collapsed]').evaluate(e=>getComputedStyle(e).backgroundColor),'rgb(0, 0, 0)');await page.emulateMedia({colorScheme:'light'});
+ await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);await page.getByRole('button',{name:'展开侧栏',exact:true}).click();const drawer=page.getByRole('dialog',{name:'学习空间',exact:true});await drawer.waitFor();await drawer.getByRole('button',{name:'班级学情',exact:true}).click();await drawer.waitFor({state:'hidden'});await page.screenshot({path:path.join(directory,'teacher-learning-mobile.png'),fullPage:true});
+ await page.getByRole('button',{name:'展开侧栏',exact:true}).click();await drawer.getByRole('button',{name:'校本资料',exact:true}).click();await drawer.waitFor({state:'hidden'});await page.getByRole('button',{name:'添加教师资料',exact:true}).click();await page.getByRole('dialog',{name:'添加校本资料',exact:true}).waitFor();await page.screenshot({path:path.join(directory,'teacher-upload-mobile.png'),fullPage:true});assert.equal(await page.getByRole('dialog',{name:'添加校本资料',exact:true}).evaluate(e=>e.scrollWidth<=e.clientWidth+1),true);await page.keyboard.press('Escape');checks.push('mobile drawer, viewport and upload dialog; dark and reduced-motion themes');
+ await page.setViewportSize({width:1440,height:960});await page.getByRole('button',{name:'新建班级',exact:true}).click();await page.getByLabel('班级名称',{exact:true}).fill('高二（3）班');await page.getByRole('button',{name:'创建班级',exact:true}).click();await page.getByRole('dialog').waitFor({state:'hidden'});const list=await (await context.request.get(origin+'/api/teacher/classes')).json();assert(list.classes.some(c=>c.name==='高二（3）班'));checks.push('real class creation');
+ assert.deepEqual(errors,[]);console.log(JSON.stringify({checks,profileData:'synthetic browser fixture; upload/publication/class APIs are real local handlers'},null,2));
+}
+

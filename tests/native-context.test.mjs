@@ -12,7 +12,7 @@ async function url(file, replacements = {}) {
   let code = ts.transpileModule(await readFile(new URL(file, import.meta.url), "utf8"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
   for (const name of ["zod", "@mastra/memory", "@mastra/memory/hooks", "@mastra/core/storage", "@mastra/cloudflare-d1"]) code = code.replaceAll(`from "${name}"`, `from "${import.meta.resolve(name)}"`);
   for (const [name, target] of Object.entries(replacements)) code = code.replaceAll(`from "${name}"`, `from "${target}"`);
-  return `data:text/javascript;base64,${Buffer.from(await resolveLearnerAdditions(code)).toString("base64")}`;
+  return `data:text/javascript;base64,${Buffer.from(await resolveLearnerAdditions(code,file)).toString("base64")}`;
 }
 const { openLearnerDatabase } = await import(await url("../src/lib/learner/database.ts"));
 const modelUrl = await url("../src/lib/learner/model.ts");

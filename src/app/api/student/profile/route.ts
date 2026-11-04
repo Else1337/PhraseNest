@@ -29,7 +29,8 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+export const POST=withStudentModelScope(handleScopedPost);
+async function handleScopedPost(request: Request) {
   const student = await getCurrentStudent();
   if (!student) return Response.json({ error: "请先登录" }, { status: 401, headers });
   if (!isSameStudentOrigin(request)) return Response.json({ error: "请求来源不正确" }, { status: 403, headers });
@@ -42,3 +43,4 @@ export async function POST(request: Request) {
     return Response.json({ error: "暂时未能启动追踪，现有画像和原始证据仍保留" }, { status: 503, headers });
   }
 }
+import {withStudentModelScope} from "@/lib/admin/request-scope";

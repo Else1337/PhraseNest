@@ -1,3 +1,5 @@
+> 独立部署开发分支：新增自托管 PostgreSQL 与原件卷，腾讯云模式仍保留。部署与迁移见 [独立部署说明](deploy/standalone/README.md)。真实数据与密钥不在仓库中。
+
 <p align="center"><img src="assets/phrasenest-cover.svg" alt="拾语 PhraseNest — 让每一次学习，都成为下一次进步的起点" width="100%" /></p>
 
 # 拾语 PhraseNest

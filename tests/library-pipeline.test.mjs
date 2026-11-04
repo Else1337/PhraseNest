@@ -11,7 +11,7 @@ async function url(file,replacements={}) {
   let code=ts.transpileModule(await readFile(new URL(file,import.meta.url),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText;
   for(const name of ['zod','mammoth','unpdf','@napi-rs/canvas']) {try {const resolved=process.env.ZHIBI_TEST_MODULE_ROOT?pathToFileURL(createRequire(path.join(process.env.ZHIBI_TEST_MODULE_ROOT,'validation.cjs')).resolve(name)).href:import.meta.resolve(name);code=code.replaceAll(`from "${name}"`,`from "${resolved}"`).replaceAll(`import("${name}")`,`import("${resolved}")`);}catch{/* Missing required parsers fail the real-file cases below. */}}
   for(const [a,b]of Object.entries(replacements))code=code.replaceAll(`from "${a}"`,`from "${b}"`);
-  return 'data:text/javascript;base64,'+Buffer.from(await resolveLearnerAdditions(code)).toString('base64');
+  return 'data:text/javascript;base64,'+Buffer.from(await resolveLearnerAdditions(code,file)).toString('base64');
 }
 const {openLearnerDatabase}=await import(await url('../src/lib/learner/database.ts'));
 const schema=await url('../src/lib/library/schema.ts');

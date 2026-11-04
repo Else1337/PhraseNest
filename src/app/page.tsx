@@ -7,5 +7,5 @@ export default async function StudentHome() {
   const student = await getCurrentStudent();
   if (!student) redirect("/login");
   // Navigation must not wait for automatic course generation or AI calls.
-  return <DialogueWorkspaceApp displayName={student.displayName} />;
+  return <DialogueWorkspaceApp displayName={student.displayName} isGuest={student.isGuest} />;
 }

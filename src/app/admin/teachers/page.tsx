@@ -1,2 +1,3 @@
-import { TeacherApproval } from "@/components/admin/teacher-approval";
-export default function AdminTeachersPage() { return <TeacherApproval />; }
+import { redirect } from "next/navigation";
+import { getCurrentAdmin } from "@/lib/admin/session";
+export default async function AdminTeachersPage(){redirect(await getCurrentAdmin()?"/admin":"/admin/login");}

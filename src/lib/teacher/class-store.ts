@@ -69,3 +69,5 @@ export async function listStudentClasses(studentId: string) {
   const classIds = new Set(store.memberships.filter((item) => item.studentId === ownerId).map((item) => item.classId));
   return store.classes.filter((item) => classIds.has(item.id) && !item.archivedAt);
 }
+
+export async function adminClassDirectory(){const store=await readStore();return store.classes.filter(c=>!c.archivedAt).map(c=>({...c,studentIds:store.memberships.filter(m=>m.classId===c.id).map(m=>m.studentId)}));}

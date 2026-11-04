@@ -11,7 +11,8 @@ export async function readInquiryResponse<T = Record<string, unknown>>(response:
     try { event = JSON.parse(line); } catch { throw new Error("询问返回内容不完整，请原位重试。"); }
     if (event.type === "delta" && typeof event.content === "string") onDelta(event.content);
     if (event.type === "complete") { result = event.result; completed = true; }
-    if (event.type === "error") throw new Error("解答未完成，问题已保留，可以原位重试。");
+    if(event.type==="usage_policy")throw new Error(typeof event.decision?.notice==="string"?event.decision.notice:"请换一个英语学习问题。");
+    if (event.type === "error") throw new Error(typeof event.error==="string"?event.error:"解答未完成，问题已保留，可以原位重试。");
   };
   try {
     while (true) {

@@ -35,7 +35,7 @@ export const guides: Record<GuideId, { scope: GuideScope; steps: GuideStep[] }> 
     { title: "你的学习小窝，马上就准备好啦。", text: "填上老师给的用户名和激活码，再设一个自己的密码。我们进去看看？", target: "activation-form" },
   ] },
   teacher: { scope: "teacher", steps: [
-    { title: "班级建好，就可以一起照看学习啦。", text: "先建一个班级，再批量加入学生。学生用一次性激活码设置自己的密码，不必由您保管。", target: "teacher-class" },
+    { title: "把熟悉的讲义，也带进学习小窝吧。", text: "先建班级，联系管理员加入学生。到“校本资料”上传讲义，核对后发布，Mia 就能在教学中引用啦。", target: "teacher-class" },
     { title: "看见问题，也能找到它的来处。", text: "学生加入后，点开姓名就能查看学习线索和原始证据。您的复核意见会单独保留，不改动学生原句。", target: "teacher-students" },
   ] },
 };

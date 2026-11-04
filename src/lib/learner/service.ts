@@ -13,7 +13,12 @@ export async function evidenceStore() { return new LearningEvidenceStore(await l
 // indexing failure never discards a saved lesson; explicit sync repairs it.
 export async function retainLearningRound(studentId: string, input: Omit<RoundInput, "materialRefs">, materials: MaterialInput[]) {
   const { readDialogueWorkspace } = await import("@/lib/student/dialogue-store");
-  if ((await readDialogueWorkspace(studentId)).deletedConversations[input.conversationId]) return null;
+  const workspace = await readDialogueWorkspace(studentId);
+  if (workspace.deletedConversations[input.conversationId] || workspace.conversations.find(c => c.id === input.conversationId)?.messages.some(m => m.turnId === input.id && m.policy?.allowed === false) || workspace.annotations.some(a => a.id === input.id && a.policy?.allowed === false)) return null;
+  if (input.id === input.conversationId) {
+    const { readDailyReading } = await import("@/lib/student/daily-reading-store");
+    if ((await readDailyReading(studentId)).inquiries.some(item => item.id === input.id && item.policy?.allowed === false)) return null;
+  }
   const store = await learnerStore();
   const materialRefs = await Promise.all(materials.map((m) => store.putMaterial(studentId, m)));
   await store.putRound(studentId, { ...input, materialRefs });
@@ -76,7 +81,7 @@ export async function syncLearningWorkspace(studentId: string) {
   const refs = new Map<string, { id: string; version: string }>();
   for (const doc of state.documents) refs.set(doc.id, await store.putMaterial(studentId, doc));
   let rounds = 0;
-  for (const conversation of state.conversations) for (const question of conversation.messages.filter((m) => m.role === "student")) {
+    for (const conversation of state.conversations) for (const question of conversation.messages.filter((m) => m.role === "student" && !m.showcase && (!m.policy||m.policy.allowed))) {
     if (state.deletedConversations[conversation.id]) continue;
     const answer = conversation.messages.find((m) => m.turnId === question.turnId && m.role === "assistant");
     await store.putRound(studentId, { id: question.turnId, conversationId: conversation.id, question: question.content, answer: answer?.content ?? "", status: answer?.status ?? "failed", createdAt: question.createdAt, materialRefs: question.documentIds.map((id) => refs.get(id)).filter((ref): ref is { id: string; version: string } => Boolean(ref)) });
@@ -89,8 +94,8 @@ export async function syncLearningWorkspace(studentId: string) {
     if (archive.studentId !== studentId) throw new Error("历史资料归属不匹配");
     for (const item of archive.records) await evidence.putRecord(studentId, item);
   }
-  for (const item of state.annotations) if (!state.deletedConversations[item.conversationId]) await evidence.putRecord(studentId, { id: `inquiry:${item.id}`, kind: "inquiry", title: "阅读追问", content: `选文：${item.anchor.quote}\n学生问题：${item.question}\n教师回复（非学生作答）：${item.status === "complete" ? item.answer : "尚未完整结束"}`, at: item.createdAt, conversationId: item.conversationId, sourceId: item.anchor.sourceId });
-  for (const item of daily.inquiries) await evidence.putRecord(studentId, { id: `daily-inquiry:${item.id}`, kind: "inquiry", title: "日课追问", content: `选文：${item.quote}\n学生问题：${item.question}\n教师回复（非学生作答）：${item.status === "complete" ? item.answer : "尚未完整结束"}`, at: item.createdAt, sourceId: item.articleId });
+  for (const item of state.annotations) if ((!item.policy||item.policy.allowed)&&!state.deletedConversations[item.conversationId]) await evidence.putRecord(studentId, { id: `inquiry:${item.id}`, kind: "inquiry", title: "阅读追问", content: `选文：${item.anchor.quote}\n学生问题：${item.question}\n教师回复（非学生作答）：${item.status === "complete" ? item.answer : "尚未完整结束"}`, at: item.createdAt, conversationId: item.conversationId, sourceId: item.anchor.sourceId });
+  for (const item of daily.inquiries) if(!item.policy||item.policy.allowed)await evidence.putRecord(studentId, { id: `daily-inquiry:${item.id}`, kind: "inquiry", title: "日课追问", content: `选文：${item.quote}\n学生问题：${item.question}\n教师回复（非学生作答）：${item.status === "complete" ? item.answer : "尚未完整结束"}`, at: item.createdAt, sourceId: item.articleId });
   for (const event of daily.events) await evidence.activity(studentId, { id: `daily:${event.id}`, kind: event.type, sourceId: event.articleId, at: event.at, payload: event });
   for (const id of Object.keys((await readDialogueWorkspace(studentId)).deletedConversations)) await store.deleteConversation(studentId, id);
   await store.db.query("INSERT INTO lp_sync(student_id,name,fingerprint,updated_at) VALUES(?,'evidence-v1',?,?) ON CONFLICT(student_id,name) DO UPDATE SET fingerprint=excluded.fingerprint,updated_at=excluded.updated_at", [studentId, createHash("sha256").update(JSON.stringify({ rounds, documents: refs.size, projects: projects.length })).digest("hex"), new Date().toISOString()]);

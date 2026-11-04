@@ -7,7 +7,7 @@ export async function POST(request: Request) {
   if (!expected || expected.length < 32) return Response.json({ error: "学习后台尚未配置" }, { status: 503, headers });
   const provided = request.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
   if (Buffer.byteLength(provided) !== Buffer.byteLength(expected) || !timingSafeEqual(Buffer.from(provided), Buffer.from(expected))) return Response.json({ error: "未授权" }, { status: 401, headers });
-  if (process.env.NODE_ENV === "production" && process.env.ZHIBI_PERSISTENCE_MODE !== "cloudbase" && process.env.ZHIBI_PERSISTENCE_MODE !== "postgres") return Response.json({ error: "学习后台需要持久数据库" }, { status: 503, headers });
+  if (process.env.NODE_ENV === "production" && !["cloudbase", "postgres", "standalone"].includes(process.env.ZHIBI_PERSISTENCE_MODE || "")) return Response.json({ error: "学习后台需要持久数据库" }, { status: 503, headers });
   const encoder = new TextEncoder(); let closed = false;
   const stream = new ReadableStream<Uint8Array>({ async start(controller) {
     const send = (value: object) => { if (!closed) controller.enqueue(encoder.encode(JSON.stringify(value) + "\n")); };

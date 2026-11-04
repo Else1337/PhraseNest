@@ -13,6 +13,7 @@ import "./essay-reader.css";
 import "./chat-navigation.css";
 import "./teacher-tools.css";
 import "./mia-guide.css";
+import "./guest-mode.css";
 
 export const metadata: Metadata = {
   title: brand.title,

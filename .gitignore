@@ -26,15 +26,7 @@ outputs/token-optimization/
 outputs/context-lean/
 outputs/prefix-cache/
 outputs/teaching-prompt-ab/
-
-# Private runtime records and deployment receipts
-outputs/
-deploy/data/
-*.enc
-*.sqlite*
-*.db
-*.pem
-*.key
-.env.*
-!.env.example
-!**/.env.runtime.example
+deploy/standalone/.env
+deploy/standalone/migration/
+*.pnbak
+*.pnkey

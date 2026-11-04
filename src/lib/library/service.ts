@@ -2,6 +2,8 @@ import { learnerDatabase } from "@/lib/learner/database";
 import { LibraryStore } from "./store";
 import { parseDocument, DocumentParseError, DocumentParseYield, type PdfProgress } from "./parse";
 import { readStoreBinary,readStoreText,replaceStoreFile } from "@/lib/storage/file-store";
+import {runModelScope,modelOwnerScope} from "@/lib/admin/model-scope";
+import {assertAiAvailable,UsagePolicyError} from "@/lib/admin/policy";
 export { libraryTextVersion } from "./store";
 
 export async function libraryStore(){return new LibraryStore(await learnerDatabase());}
@@ -16,11 +18,12 @@ async function processNextLibraryJob({ uploadsOnly = false }: { uploadsOnly?: bo
   const store=await libraryStore(),job=await store.claim();
   if(job) {
     try {
+      try{await assertAiAvailable(job.studentId);}catch(error){if(!(error instanceof UsagePolicyError))throw error;await store.defer(job);return {processed:true,status:"policy_paused"};}
       const bytes=await readStoreBinary(job.objectKey);if(!bytes)throw new DocumentParseError("original_missing");
       const progressKey = `library-pages/${job.studentId}/${job.documentId}/${job.version}.json`;
       const saved = job.mime === "application/pdf" ? await readStoreText(progressKey) : null;
       const progress = saved ? JSON.parse(saved) as PdfProgress : undefined;
-      const extracted=await parseDocument(bytes,job.mime,AbortSignal.timeout(95_000),async(url,signal)=>{const {recognizeLearningImage}=await import("@/lib/ai/learning-image");return (await recognizeLearningImage(url,signal)).text;}, { progress, ocrBatch: 1, save: async pages => {
+      const extracted=await parseDocument(bytes,job.mime,AbortSignal.timeout(95_000),async(url,signal)=>runModelScope(await modelOwnerScope(job.studentId,"ocr"),async()=>{const {recognizeLearningImage}=await import("@/lib/ai/learning-image");return (await recognizeLearningImage(url,signal)).text;}), { progress, ocrBatch: 1, save: async pages => {
         await replaceStoreFile(progressKey, `${progressKey}.backup`, JSON.stringify(pages));
         await replaceStoreFile(`dialogue-uploads/${job.studentId}/${job.documentId}.json`, `dialogue-uploads/${job.studentId}/${job.documentId}.backup`, JSON.stringify({ name: job.filename, mime: job.mime, status: "processing", completedPages: pages.pages.filter((t, n) => t.trim() || pages.ocrPages.includes(n)).length, totalPages: pages.pages.length }));
       } });

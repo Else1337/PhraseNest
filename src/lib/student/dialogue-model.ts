@@ -31,6 +31,8 @@ const messageSchema = z.object({
   documentIds: z.array(z.string()).max(18).default([]),
   task: taskSchema.default("conversation"), status: z.enum(["complete", "generating", "failed"]),
   practice: z.boolean().default(false), error: z.string().max(300).optional(),
+    policy: z.object({category:z.string(),allowed:z.boolean(),notice:z.string().max(500),count:z.number().int(),pausedUntil:z.number().nullable(),violation:z.boolean()}).optional(),
+  showcase: z.boolean().optional(),
   analysisRootId: z.string().uuid().optional(),
   toolReceipts: z.array(agentToolReceiptSchema).max(maxDialogueToolReceipts).default([]),
   learningChangeIds: z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(20).optional(),
@@ -83,6 +85,7 @@ export const bankEntrySchema = z.object({
 export const annotationSchema = z.object({
   id: z.string().uuid(), conversationId: z.string().uuid(), anchor: readingAnchorSchema,
   question: z.string().trim().min(1).max(2_000), answer: z.string().max(20_000).default(""),
+  policy:z.object({category:z.string(),allowed:z.boolean(),notice:z.string(),count:z.number(),pausedUntil:z.number().nullable(),violation:z.boolean()}).optional(),
   status: z.enum(["generating", "complete", "failed"]), createdAt: z.string().datetime(),
   leaseToken: z.string().uuid().nullable().default(null), leaseUntil: z.number().default(0),
   sourceIds: z.array(z.string().max(200)).max(18).default([])

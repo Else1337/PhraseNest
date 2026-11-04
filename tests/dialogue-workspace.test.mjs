@@ -1,10 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile, mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import test from "node:test";
 import ts from "typescript";
-import { resolveLearnerAdditions } from "./learner-module-loader.mjs";
+import { resolveLearnerAdditions,learnerModuleUrl } from "./learner-module-loader.mjs";
 
 const dataModule = (source) => `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
 async function loadTs(file, replacements = {}) {
@@ -23,7 +21,7 @@ const reviewPolicyUrl = await loadTs("../src/lib/ai/skills/writing-review-policy
 const coach = await import(await loadTs("../src/lib/ai/dialogue-coach.ts", { "./skills/writing-review-policy": reviewPolicyUrl, "./task-context": await loadTs("../src/lib/ai/task-context.ts"), "@/lib/student/dialogue-model": modelUrl, "@/lib/student/learning-resources": resourcesUrl }));
 const userA = "1ea8babe-aea6-4eb5-8fe4-67c4f5ba1411";
 const userB = "2ea8babe-aea6-4eb5-8fe4-67c4f5ba1422";
-const directory = await mkdtemp(path.join(tmpdir(), "zhibi-dialogue-tests-"));
+const directory = await mkdtemp('D:/CodexBuilds/zhibi-native-context/dialogue-tests-');
 process.env.STUDENT_PROJECT_DATA_DIR = directory;
 
 test("preflight retrieval plus ten Agent reads can save and reload a completed reply", async () => {
@@ -35,7 +33,7 @@ test("preflight retrieval plus ten Agent reads can save and reload a completed r
   assert.equal(saved.status, "complete");
   assert.equal(saved.toolReceipts.length, 11);
 });
-test.after(async () => { delete process.env.STUDENT_PROJECT_DATA_DIR; await rm(directory, { recursive: true, force: true }); });
+test.after(async () => { const db=await import(await learnerModuleUrl('../src/lib/learner/database.ts'));await (await db.learnerDatabase()).close();delete process.env.STUDENT_PROJECT_DATA_DIR; await rm(directory, { recursive: true, force: true }); });
 
 test("Memory learning focus selects related language without fabricating mastery or answers", () => {
   const state = model.emptyWorkspace(), at = new Date("2026-10-18T02:00:00Z");
@@ -61,6 +59,7 @@ test("real questions persist before AI; retry is idempotent, scoped and context-
   assert.equal(retried.conversation.messages.length, 2);
   assert.equal(retried.conversation.messages[1].content, "");
   const receipts = [{ tool: "read_learning_source", status: "complete", sourceIds: [document.id], durationMs: 1 }];
+  await store.setDialogueTurnPolicy(userA, input.conversationId, input.turnId, {category:"english_learning",allowed:true,notice:"",count:0,pausedUntil:null,violation:false}, retried.conversation.leaseToken);
   await store.finishDialogueTurn(userA, input.conversationId, input.turnId, { content: "第一句表示深吸一口气。", toolReceipts: receipts });
   assert.deepEqual((await store.readDialogueWorkspace(userA)).conversations[0].messages[1].toolReceipts, receipts);
   assert.equal((await store.beginDialogueTurn(userA, input, new Set([document.id]))).completed.content, "第一句表示深吸一口气。");
@@ -175,6 +174,8 @@ test("concurrent local mutations do not lose updates and corrupt state fails clo
 });
 
 test("stream parser handles split UTF-8, final data without newline and interrupted generations", async () => {
+  const billing=await import(await import('./learner-module-loader.mjs').then(m=>m.learnerModuleUrl('../src/lib/admin/model-scope.ts')));
+  await billing.runModelScope({studentId:crypto.randomUUID(),guest:true,surface:"local_parser_test"},async()=>{
   const { streamChatCompletion } = await import(await loadTs("../src/lib/ai/openai-compatible.ts"));
   const originalFetch = globalThis.fetch;
   const encoder = new TextEncoder();
@@ -189,6 +190,7 @@ test("stream parser handles split UTF-8, final data without newline and interrup
     globalThis.fetch = async () => new Response('data: {"choices":[{"delta":{"content":"partial"},"finish_reason":"length"}]}\n\ndata: [DONE]\n');
     await assert.rejects(async () => { for await (const delta of streamChatCompletion(options)) void delta; }, /长度限制/);
   } finally { globalThis.fetch = originalFetch; }
+  });
 });
 
 test("comparison disclosure preserves reasons, original source text and short exercises", async () => {

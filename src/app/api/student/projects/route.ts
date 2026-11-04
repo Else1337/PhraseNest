@@ -6,7 +6,8 @@ import { getCurrentStudent } from "@/lib/auth/session";
 
 export const runtime = "nodejs";
 
-export async function POST(request: Request) {
+export const POST=withStudentModelScope(handleScopedPost);
+async function handleScopedPost(request: Request) {
   try {
     const student = await getCurrentStudent();
     if (!student) return NextResponse.json({ error: "请先登录" }, { status: 401 });
@@ -27,3 +28,4 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "项目保存失败，请重试" }, { status: 500 });
   }
 }
+import {withStudentModelScope} from "@/lib/admin/request-scope";

@@ -1,4 +1,6 @@
 import {getCurrentStudent} from "@/lib/auth/session";
+import {runModelScope,governanceResponse,type ModelScope} from "@/lib/admin/model-scope";
+import {assertAiAvailable,policyInputHash,UsagePolicyError} from "@/lib/admin/policy";
 import {acquireAiLease,RequestSafetyError,safetyResponse} from "./request-safety";
 async function validateBody(request:Request){
   if(!request.body)return;
@@ -13,24 +15,32 @@ async function validateBody(request:Request){
 // On a canceled legacy stream we retain the lease until its TTL: those old
 // handlers do not expose a reliable provider-finished signal. Never free a
 // potentially still-billable generation merely because the browser left.
-export function protectStudentAi<C extends unknown[]>(handler:(request:Request,...context:C)=>Promise<Response>,resolveOwner:()=>Promise<{id:string}|null>=getCurrentStudent){
+export function protectStudentAi<C extends unknown[]>(handler:(request:Request,...context:C)=>Promise<Response>,resolveOwner:()=>Promise<{id:string;isGuest?:boolean}|null>=getCurrentStudent){
   return async(request:Request,...context:C)=>{
     let permit:Awaited<ReturnType<typeof acquireAiLease>>|undefined;
     let phase="session";
     const release=async()=>{try{await permit?.release();}catch{console.warn("[ai-permit-release]",{pending:true});}};
     try{
       const student=await resolveOwner();if(!student)return Response.json({error:"请先登录"},{status:401});
+      await assertAiAvailable(student.id);
       phase="lease";
       permit=await acquireAiLease(`student:${student.id}`,new URL(request.url).pathname);
       phase="body";await validateBody(request);phase="handler";
-      const response=await handler(request,...context);
+      const payload=request.headers.get("content-type")?.includes("application/json")?await request.clone().json() as Record<string,unknown>:{};
+      if(!payload||typeof payload!=="object"||Array.isArray(payload))throw new RequestSafetyError(400,"请求格式不正确");
+      const turn=typeof payload.turnId==="string"&&/^[a-f0-9-]{36}$/.test(payload.turnId)?payload.turnId:crypto.randomUUID();
+      const policyQuestion=["question","instructions","topic","promptTitle","answer","content","text"].flatMap(key=>typeof payload[key]==="string"?[String(payload[key]).slice(0,16000)]:[]).join("\n");
+      const billingScope:ModelScope={studentId:student.id,guest:student.isGuest,turnId:turn,policyHash:policyInputHash(payload),...(policyQuestion?{policyQuestion}:{}),surface:new URL(request.url).pathname};
+      const response=await runModelScope(billingScope,()=>handler(request,...context));
+      if(billingScope.policyDecision&&!billingScope.policyDecision.allowed){void response.body?.cancel();await release();return governanceResponse(new UsagePolicyError(billingScope.policyDecision))!;}
+      if(billingScope.policyFailure){void response.body?.cancel();await release();throw billingScope.policyFailure;}
       if(!response.body||!/(?:event-stream|ndjson)/.test(response.headers.get("content-type")??"")){await release();return response;}
       const reader=response.body.getReader();
       let canceled=false;
       return new Response(new ReadableStream<Uint8Array>({
-        async pull(controller){try{const chunk=await reader.read();if(chunk.done){if(!canceled){await release();reader.releaseLock();controller.close();}}else if(!canceled)controller.enqueue(chunk.value);}catch(error){if(!canceled){await release();controller.error(error);}}},
+        async pull(controller){try{const chunk=await reader.read();if(!canceled&&billingScope.policyDecision&&!billingScope.policyDecision.allowed){const decision=billingScope.policyDecision;controller.enqueue(new TextEncoder().encode(JSON.stringify({type:"usage_policy",decision})+'\n'+JSON.stringify({type:"error",error:decision.notice})+'\n'));canceled=true;await reader.cancel();await release();controller.close();return;}if(chunk.done){if(!canceled){await release();reader.releaseLock();controller.close();}}else if(!canceled)controller.enqueue(chunk.value);}catch(error){if(!canceled){await release();controller.error(error);}}},
         async cancel(reason){canceled=true;await reader.cancel(reason);reader.releaseLock();}
       }),{status:response.status,statusText:response.statusText,headers:response.headers});
-    }catch(error){console.warn("[ai-request-guard]",{phase,type:error instanceof Error?error.name:"unknown"});await release();return safetyResponse(error);}
+    }catch(error){console.warn("[ai-request-guard]",{phase,type:error instanceof Error?error.name:"unknown"});await release();return governanceResponse(error)??safetyResponse(error);}
   };
 }

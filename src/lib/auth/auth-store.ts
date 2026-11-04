@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from "no
 import { promisify } from "node:util";
 import { mutateStoreText, readStoreText } from "@/lib/storage/file-store";
 import { z } from "zod";
+import { getGuestBySessionToken, revokeGuestSession } from "./guest-session-store";
 
 const scryptAsync = promisify(scrypt);
 
@@ -41,7 +42,10 @@ export const loginStudentSchema = z.object({
   password: z.string().min(1).max(128)
 });
 
-export type PublicStudent = { id: string; username: string; displayName: string };
+export type PublicStudent = { id: string; username: string; displayName: string; isGuest?: boolean };
+
+// Server-only directory: deliberately never returns password or activation hashes.
+export async function adminStudentDirectory(){const s=await readAuthStore();return s.students.map(a=>({...publicStudent(a),createdAt:a.createdAt,activationRequired:a.activationRequired===true}));}
 
 export class AuthError extends Error {
   constructor(readonly code: "USERNAME_TAKEN" | "INVALID_CREDENTIALS") {
@@ -126,6 +130,7 @@ export async function createStudentSession(studentId: string) {
 }
 
 export async function getStudentBySessionToken(token: string): Promise<PublicStudent | null> {
+  if (token.startsWith("guest.")) return getGuestBySessionToken(token);
   const store = await readAuthStore();
   const session = store.sessions.find((item) => item.tokenHash === tokenHash(token) && new Date(item.expiresAt) > new Date());
   if (!session) return null;
@@ -138,7 +143,14 @@ export async function getStudentsByIds(studentIds: string[]): Promise<PublicStud
   return (await readAuthStore()).students.filter((student) => ids.has(student.id)).map(publicStudent);
 }
 
+// Server-only showcase lookup; credentials are never returned to a guest.
+export async function findStudentByUsername(username: string): Promise<PublicStudent | null> {
+  const student = (await readAuthStore()).students.find(item => item.username.toLowerCase() === username.trim().toLowerCase());
+  return student ? publicStudent(student) : null;
+}
+
 export async function revokeStudentSession(token: string) {
+  if (token.startsWith("guest.")) return revokeGuestSession(token);
   const digest = tokenHash(token);
   await mutateAuth((store) => {
     store.sessions = store.sessions.filter((session) => session.tokenHash !== digest);

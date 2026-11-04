@@ -9,6 +9,7 @@ import { readingAnchorSchema, WorkspaceError, type ReadingAnchor } from "@/lib/s
 import { mutateDialogueWorkspace, readDialogueWorkspace } from "@/lib/student/dialogue-store";
 import { addCorpusKnowledgeBatch } from "@/lib/student/learning-store";
 import { ownedReadingSource } from "@/lib/student/reading-source";
+import {UsagePolicyError,PolicyFrameError,assertAiAvailable} from "@/lib/admin/policy";
 import { normalizedQuote } from "@/lib/student/reading-flow";
 import { inquiryThread } from "@/lib/student/inquiry-thread";
 import {acquireAiLease,readBoundedText,RequestSafetyError,safetyResponse} from "@/lib/security/request-safety";
@@ -24,7 +25,8 @@ const schema = z.discriminatedUnion("action", [
   z.object({ ...base, action: z.literal("annotate"), id: z.string().uuid(), anchor: readingAnchorSchema, question: z.string().trim().min(1).max(2_000) })
 ]);
 
-export async function POST(request: Request) {
+export const POST=withStudentModelScope(handleScopedPost);
+async function handleScopedPost(request: Request) {
   const student = await getCurrentStudent();
   if (!student) return Response.json({ error: "请先登录" }, { status: 401, headers });
   let permit:Awaited<ReturnType<typeof acquireAiLease>>|undefined;
@@ -101,7 +103,7 @@ export async function POST(request: Request) {
           if (current.annotations.length >= 500 || current.annotations.reduce((sum, item) => sum + item.question.length + item.answer.length, 0) > 1_000_000) throw new WorkspaceError("询问空间已满", 422);
           annotation = { id: action.id, conversationId: action.conversationId, anchor: action.anchor, question: action.question, answer: "", status: "generating", createdAt: new Date().toISOString(), leaseToken, leaseUntil: Date.now() + 95_000, sourceIds: verified.sourceIds }; current.annotations.push(annotation);
         } else { annotation.status = "generating"; annotation.leaseToken = leaseToken; annotation.leaseUntil = Date.now() + 95_000; }
-        return true;
+        annotation.policy={category:"unclassified",allowed:false,notice:"分类尚未完成",count:0,pausedUntil:null,violation:false};return true;
       });
       if (claimed) return await inquiryResponse(request, async (emit, signal) => {
         let answer = "";
@@ -109,17 +111,19 @@ export async function POST(request: Request) {
         const retainedAt = new Date().toISOString();
         const retain = (status: "generating" | "complete" | "failed") => safeLearning(() => retainLearningRound(student.id, { id: action.id, conversationId: action.conversationId, question: action.question, answer, status, createdAt: retainedAt }, [{ id: `inquiry-source:${action.id}`, title: verified.title, role: "选文原始上下文，非学生作答", content: verified.original }]));
         try {
-          await retain("generating");
+          await assertAiAvailable(student.id);
           const resources = action.anchor.sourceId ? [await sourceById(action.anchor.sourceId)].filter((source): source is NonNullable<typeof source> => Boolean(source)) : [];
-          const history = inquiryThread(state.annotations, action.conversationId, action.anchor).filter(item => item.id !== action.id && item.status === "complete");
+          const history = inquiryThread(state.annotations, action.conversationId, action.anchor).filter(item => item.id !== action.id && item.status === "complete" && (!item.policy || item.policy.allowed));
           const messages = annotationMessages(action.anchor.quote, action.question, verified.original, resources, history, verified.fullEssay);
           const { dialogueLanguageModel, streamDialogueAgent } = await import("@/lib/ai/dialogue-agent");
-          for await (const delta of streamDialogueAgent({ model: dialogueLanguageModel(getDeepSeekConfig()), modelName: getDeepSeekConfig().model, messages, resources, focusedAnnotation: true, studentId: student.id, conversationId: action.id, turnId: action.id, signal, onUsage: async value => saveTurnUsage((await learnerStore()).db, student.id, value), onReceipt: () => undefined })) { answer += delta; if (answer.length > 19_000) throw new Error("询问过长"); emit(delta); }
+          for await (const delta of streamDialogueAgent({ model: dialogueLanguageModel(getDeepSeekConfig(),undefined,undefined,"reading_inquiry"), modelName: getDeepSeekConfig().model, messages, resources, focusedAnnotation: true, studentId: student.id, conversationId: action.id, turnId: action.id, signal,onPolicy:async decision=>{await mutateDialogueWorkspace(student.id,current=>{const item=current.annotations.find(a=>a.id===action.id);if(item?.leaseToken!==leaseToken)throw new WorkspaceError("询问已过期");item.policy=decision;});await retain("generating");}, onUsage: async value => saveTurnUsage((await learnerStore()).db, student.id, value), onReceipt: () => undefined })) { answer += delta; if (answer.length > 19_000) throw new Error("询问过长"); emit(delta); }
           await mutateDialogueWorkspace(student.id, (current) => { const item = current.annotations.find((entry) => entry.id === action.id); if (item?.leaseToken === leaseToken) { item.answer = answer; item.status = "complete"; item.leaseToken = null; item.leaseUntil = 0; } });
           await retain("complete");
           const fresh = await readDialogueWorkspace(student.id);
           return { bank: fresh.bank, annotations: fresh.annotations };
-        } catch {
+        } catch(error) {
+          if(error instanceof UsagePolicyError){await mutateDialogueWorkspace(student.id,current=>{const item=current.annotations.find(a=>a.id===action.id);if(item?.leaseToken===leaseToken){item.answer=error.message;item.status="complete";item.policy=error.decision;item.leaseToken=null;item.leaseUntil=0;}});throw error;}
+          if(error instanceof PolicyFrameError){await mutateDialogueWorkspace(student.id,current=>{const item=current.annotations.find(a=>a.id===action.id);if(item?.leaseToken===leaseToken){item.status="failed";item.policy={...{category:"unclassified",allowed:false,notice:"分类尚未完成",count:0,pausedUntil:null,violation:false},notice:error.message};item.leaseToken=null;item.leaseUntil=0;}});throw error;}
           await mutateDialogueWorkspace(student.id, (current) => { const item = current.annotations.find((entry) => entry.id === action.id); if (item?.leaseToken === leaseToken) { item.answer = answer.slice(0, 20_000); item.status = "failed"; item.leaseToken = null; item.leaseUntil = 0; } });
           await retain("failed");
           throw new WorkspaceError("询问问题已保留，解答未完成，可原位重试", 503);
@@ -139,3 +143,4 @@ export async function POST(request: Request) {
     return Response.json({ error: "保存未完成，原有资料不会清空，请重试" }, { status: 503, headers });
   }
 }
+import {withStudentModelScope} from "@/lib/admin/request-scope";

@@ -42,7 +42,8 @@ async function extractOriginal(owner: string, id: string, bytes: Uint8Array, inf
   }
 }
 
-export async function POST(request: Request) {
+export const POST=withStudentModelScope(handleScopedPost);
+async function handleScopedPost(request: Request) {
   const student = await getCurrentStudent();
   if (!student) return Response.json({ error: "请先登录" }, { status: 401, headers });
   try {
@@ -71,7 +72,7 @@ export async function POST(request: Request) {
     if(process.env.LIBRARY_INGEST_ENABLED==="1") {
       const shared=process.env.ZHIBI_PERSISTENCE_MODE==="cloudbase"&&!!process.env.TCB_ENV&&!!process.env.CLOUDBASE_APIKEY;
       const durable=shared||/^postgres(?:ql)?:/.test(process.env.LEARNER_DATABASE_URL||process.env.LEARNING_DATABASE_URL||"")||process.env.MASTRA_STORAGE_DURABLE==="1";
-      const originalStore=shared||!!((process.env.STUDENT_STORE_DATABASE_URL||process.env.LEARNING_DATABASE_URL)&&process.env.STUDENT_OBJECT_BUCKET);
+      const originalStore=shared||!!(process.env.ZHIBI_PERSISTENCE_MODE==="standalone"&&process.env.STANDALONE_ORIGINALS_DIR)||!!((process.env.STUDENT_STORE_DATABASE_URL||process.env.LEARNING_DATABASE_URL)&&process.env.STUDENT_OBJECT_BUCKET);
       if(process.env.NODE_ENV==="production"&&(!durable||!process.env.LIBRARY_WORKER_KEY||!originalStore))return Response.json({error:"资料后台入库尚未完成持久化配置，未接收文件"},{status:503,headers});
       const mime=documentMime(bytes,file.name),sourceFileId=z.string().uuid().parse(form.get("uploadId") || crypto.randomUUID()),key=`dialogue-uploads/${student.id}/${sourceFileId}`;
       const {createHash}=await import("node:crypto"), fingerprint=createHash("sha256").update(bytes).digest("hex");
@@ -130,9 +131,10 @@ export async function GET(request: Request) {
   }
   const metadata = await readStoreText(`${key}.json`);
   if (!metadata) return Response.json({ error: "文件不存在" }, { status: 404, headers });
-  const bytes = await readStoreBinary(`${key}.bin`);
+  const bytes = await readStoreBinary(`${key}.bin`) ?? (student.isGuest ? await (await import("@/lib/auth/guest-library")).readGuestOriginalBinary(student.id, id.data) : null);
   if (!bytes) return Response.json({ error: "文件不存在" }, { status: 404, headers });
   const { name, mime } = JSON.parse(metadata) as { name: string; mime: string };
   const preview = new URL(request.url).searchParams.get("preview") === "1" && /^(image\/(jpeg|png|webp)|application\/pdf)$/.test(mime);
   return new Response(bytes, { headers: { ...headers, "Content-Type": mime, "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox", "Content-Disposition": `${preview ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(name)}` } });
 }
+import {withStudentModelScope} from "@/lib/admin/request-scope";

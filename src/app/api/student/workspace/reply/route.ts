@@ -1,4 +1,9 @@
 import { writingReviewSkill } from "@/lib/ai/skills/writing-review";
+import {UsagePolicyError,PolicyFrameError,assertAiAvailable} from "@/lib/admin/policy";
+import {adminAudit} from "@/lib/admin/audit";
+import {governanceResponse,runModelScope} from "@/lib/admin/model-scope";
+import {syncAdminConversationIndex} from "@/lib/admin/queries";
+import {mutateDialogueWorkspace} from "@/lib/student/dialogue-store";
 import { examTutorEnabled, examTutorSkill } from "@/lib/ai/skills/exam-tutor";
 import { after } from "next/server";
 import type { LearningChange } from "@/lib/learner/change-model";
@@ -7,7 +12,7 @@ import { getCurrentStudent } from "@/lib/auth/session";
 import { getDeepSeekConfig } from "@/lib/ai/config";
 import { buildDialogueMessages } from "@/lib/ai/dialogue-coach";
 import { createLearningQueries } from "@/lib/learner/context";
-import { beginDialogueTurn, checkpointDialogueTurn, finishDialogueTurn, readDialogueWorkspace, setDialogueWritingContext } from "@/lib/student/dialogue-store";
+import { beginDialogueTurn, checkpointDialogueTurn, finishDialogueTurn, readDialogueWorkspace, setDialogueTurnPolicy, setDialogueWritingContext } from "@/lib/student/dialogue-store";
 import { sendDialogueSchema, WorkspaceError, type AgentToolReceipt, type ReviewFocus } from "@/lib/student/dialogue-model";
 import { activeDialogueTurns, dialogueRunKey } from "@/lib/student/active-dialogue-turns";
 import { inferTeachingTask } from "@/lib/student/reading-flow";
@@ -40,7 +45,8 @@ export async function GET(request: Request) {
   catch { return Response.json({ error: "对话服务暂未就绪，请稍后重试" }, { status: 503, headers }); }
 }
 
-export async function POST(request: Request) {
+export const POST=withStudentModelScope(handleScopedPost);
+async function handleScopedPost(request: Request) {
   const student = await getCurrentStudent();
   if (!student) return Response.json({ error: "请先登录" }, { status: 401, headers });
   let permit:Awaited<ReturnType<typeof acquireAiLease>>|undefined;
@@ -48,6 +54,7 @@ export async function POST(request: Request) {
     const body = await readBoundedText(request,600_000);
     if (body.length > 200_000) return Response.json({ error: "内容过长，请分批提交" }, { status: 413, headers });
     const action = sendDialogueSchema.parse(JSON.parse(body));
+    await assertAiAvailable(student.id);
     const teachingVersion = action.teachingVersion ?? "new";
     const contextPolicy = await resolveContextPolicy(student.id, action.conversationId, action.turnId);
     const config = getDeepSeekConfig();
@@ -85,8 +92,8 @@ export async function POST(request: Request) {
     let generation: Promise<void> = Promise.resolve();
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
-        generation = (async () => {
-        const send = (value: unknown) => { if (!disconnected && !signal.aborted) { try { controller.enqueue(encoder.encode(`${JSON.stringify(value)}\n`)); } catch { disconnected = true; } } };
+        generation = runModelScope({studentId:student.id,guest:student.isGuest,turnId:action.turnId,conversationId:action.conversationId,surface:"dialogue"},async () => {
+        const send = (value: unknown) => { if (!disconnected) { try { controller.enqueue(encoder.encode(`${JSON.stringify(value)}\n`)); } catch { disconnected = true; } } };
         notifyLearningChange = change => send({ type: "learning_change", change });
         let content = "", checkpointAt = Date.now(), checkpointSize = 0;
         const toolReceipts: AgentToolReceipt[] = [];
@@ -106,7 +113,6 @@ export async function POST(request: Request) {
            const { learningMemoryPolicy } = await import("@/lib/ai/mastra-memory");
            const policy = learningMemoryPolicy();
            retainedMaterials = attached;
-          await safeLearning(() => retainLearningRound(student.id, { id: action.turnId, conversationId: action.conversationId, question: action.question, answer: "", status: "generating", createdAt: turnCreatedAt }, retainedMaterials));
           signal.throwIfAborted();
            let sources = attached;
            if (contextAssemblyPolicy() === "task-v2") {
@@ -122,7 +128,6 @@ export async function POST(request: Request) {
              for (const source of sources) submittedDraftIds.add(source.id);
              // Recovered manuscript refs must exist before the first evidence
              // tool call, not only after the final reply has completed.
-             await safeLearning(() => retainLearningRound(student.id, { id: action.turnId, conversationId: action.conversationId, question: action.question, answer: "", status: "generating", createdAt: turnCreatedAt }, retainedMaterials));
            }
            const messages = buildDialogueMessages(started.conversation, state, { vocabulary: [], materials: [], importedHistory: [], sources: [] }, action.task, [], { examTutor, sources, nativeHistory: policy.nativeHistory, contextProfile: contextPolicy.profile, teachingVersion });
           send({ type: "stage", name: "thinking" });
@@ -136,8 +141,9 @@ export async function POST(request: Request) {
           // Only explicit attachment authorization runs before the model; no
           // keyword routing or full-library preflight competes with its plan.
           for await (const delta of streamDialogueAgent({
-             model: dialogueLanguageModel(config, queries.onProviderRequest, contextPolicy.audit ? createAuditedFetch(contextPolicy.audit, "dialogue") : undefined), observerModel: dialogueLanguageModel(config, undefined, contextPolicy.audit ? createAuditedFetch(contextPolicy.audit, "memory") : undefined), modelName: config.model, messages, resources: sources, task: action.task, examTutor, contextProfile: contextPolicy.profile, teachingVersion,
+             model: dialogueLanguageModel(config, queries.onProviderRequest, contextPolicy.audit ? createAuditedFetch(contextPolicy.audit, "dialogue") : undefined), observerModel: dialogueLanguageModel(config, undefined, contextPolicy.audit ? createAuditedFetch(contextPolicy.audit, "memory") : undefined, "memory"), modelName: config.model, messages, resources: sources, task: action.task, examTutor, contextProfile: contextPolicy.profile, teachingVersion,
             studentId: student.id, conversationId: action.conversationId, turnId: action.turnId, signal,
+             onPolicy:async decision=>{await setDialogueTurnPolicy(student.id,action.conversationId,action.turnId,decision,started.conversation.leaseToken);await retainLearningRound(student.id,{id:action.turnId,conversationId:action.conversationId,question:action.question,answer:"",status:"generating",createdAt:turnCreatedAt},retainedMaterials);},
              learningState: async input => { const value = await queries.state(input); overview = value.evidence; return value; },
              nativeConversation: policy.nativeHistory ? started.conversation : undefined,
              onObserved: queries.observed, onUsage: queries.usage, readSource: queries.readSource,
@@ -180,6 +186,16 @@ export async function POST(request: Request) {
           await safeLearning(() => retainLearningRound(student.id, { id: action.turnId, conversationId: action.conversationId, question: action.question, answer: content, status: "complete", createdAt: turnCreatedAt }, retainedMaterials));
           send({ type: "complete", conversation });
         } catch (error) {
+          if(error instanceof UsagePolicyError){
+            const decision=error.decision;
+            const fresh=await mutateDialogueWorkspace(student.id,current=>{const c=current.conversations.find(c=>c.id===action.conversationId);if(!c||current.deletedConversations[c.id])return null;for(const m of c.messages)if(m.turnId===action.turnId){m.policy=decision;if(m.role==="assistant"){m.content=decision.notice;m.status="complete";}}c.leaseToken=null;c.leaseUntil=0;return c;});
+            send({type:"usage_policy",decision,conversation:fresh});if(fresh)send({type:"complete",conversation:fresh});return;
+          }
+          if(error instanceof PolicyFrameError){
+            await adminAudit("system","policy_frame_missing",`${student.id}:${action.turnId}`,"主模型未给出有效分类，未计提醒、未放行工具或正文");
+            await setDialogueTurnPolicy(student.id,action.conversationId,action.turnId,{category:"unclassified",allowed:false,notice:error.message,count:0,pausedUntil:null,violation:false},started.conversation.leaseToken);const conversation=await finishDialogueTurn(student.id,action.conversationId,action.turnId,{content:"",error:error.message,usage:await usageSummary()},started.conversation.leaseToken);
+            send({type:"error",error:error.message,conversation});return;
+          }
            const fallback = !content.trim() && overview?.themes.length ? `先看已核对的原稿：\n\n${overview.themes.map((theme) => `### ${theme.topic}\n\n${theme.examples.map((e) => `原句：${e.original}\n\n修改参考：${e.suggestion}\n\n${e.reason}`).join("\n\n")}`).join("\n\n")}\n\n本次深入讲解未完成，先保留这些可回查的批改依据。` : "";
           if (fallback && !signal.aborted) {
             try {
@@ -195,12 +211,14 @@ export async function POST(request: Request) {
           catch { send({ type: "error", error: "回复未能保存，请刷新核对后重试" }); }
           await safeLearning(() => retainLearningRound(student.id, { id: action.turnId, conversationId: action.conversationId, question: action.question, answer: content, status: "failed", createdAt: turnCreatedAt }, retainedMaterials));
         } finally {
+          await safeLearning(async()=>syncAdminConversationIndex(student.id,await readDialogueWorkspace(student.id)));
           clearInterval(heartbeat);
           try {await permit?.release();}catch{console.warn("[reply-permit-release]",{pending:true});}
           if (activeDialogueTurns.get(key)?.abort === abort) activeDialogueTurns.delete(key);
+          await safeLearning(async()=>{if((await readDialogueWorkspace(student.id)).deletedConversations[action.conversationId]){const {cleanupDeletedConversation}=await import("@/lib/admin/deletions");await cleanupDeletedConversation(student.id,action.conversationId);}});
           if (!disconnected) { try { controller.close(); } catch { /* Already closed by peer. */ } }
         }
-        })();
+        });
       },
       cancel() { disconnected = true; }
 
@@ -216,6 +234,7 @@ export async function POST(request: Request) {
     return new Response(stream, { headers: { ...headers, "Content-Type": "application/x-ndjson; charset=utf-8", "X-Accel-Buffering": "no", "X-PhraseNest-Teaching-Version": teachingVersion } });
   } catch (error) {
     try {await permit?.release();}catch{console.warn("[reply-permit-release]",{pending:true});}
+    const governance=governanceResponse(error);if(governance)return governance;
     if(error instanceof RequestSafetyError)return safetyResponse(error);
     if (error instanceof z.ZodError || error instanceof SyntaxError) return Response.json({ error: "输入格式不正确" }, { status: 400, headers });
     if (error instanceof WorkspaceError) return Response.json({ error: error.message }, { status: error.status, headers });
@@ -223,3 +242,4 @@ export async function POST(request: Request) {
     return Response.json({ error: "对话服务暂时不可用，输入已保留，请稍后重试" }, { status: 503, headers });
   }
 }
+import {withStudentModelScope} from "@/lib/admin/request-scope";

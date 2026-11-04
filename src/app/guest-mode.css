@@ -1,0 +1,9 @@
+.auth-form-wrap .auth-guest-entry { margin-top: 18px; gap: 8px; }
+.auth-guest-button { width: 100%; min-height: 43px; padding: 11px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper-soft); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
+.auth-guest-button:hover:not(:disabled) { background: var(--canvas); }
+.auth-guest-button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.auth-guest-button:disabled { cursor: wait; opacity: .55; }
+.auth-form-wrap .auth-activation { margin-top: 16px; }
+.auth-activation a { display: inline-block; color: var(--ink-soft); font: inherit; font-size: 11px; line-height: 1.6; text-decoration: none; }
+.auth-activation a:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+.auth-activation a:focus-visible { outline: 2px solid var(--ink); outline-offset: 4px; border-radius: 2px; }

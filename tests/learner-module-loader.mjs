@@ -7,14 +7,24 @@ export async function learnerModuleUrl(filename) {
   if (!cache.has(file.href)) cache.set(file.href, (async () => {
     let code = ts.transpileModule(await readFile(file, "utf8"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
     for (const name of new Set([...code.matchAll(/from "([^"]+)"/g)].map(match => match[1]))) {
-      const target = name.startsWith(".") ? await learnerModuleUrl(new URL(name + ".ts", file)) : name.startsWith("@/") ? await learnerModuleUrl(new URL("../src/" + name.slice(2) + ".ts", import.meta.url)) : import.meta.resolve(name === "next/server" ? "next/server.js" : name);
+      const target = name.startsWith(".") ? await learnerModuleUrl(new URL(name + ".ts", file)) : name.startsWith("@/") ? await learnerModuleUrl(new URL("../src/" + name.slice(2) + ".ts", import.meta.url)) : import.meta.resolve(["next/server","next/headers","next/navigation"].includes(name) ? name+".js" : name);
       code = code.replaceAll(`from "${name}"`, `from "${target}"`);
     }
     return `data:text/javascript;base64,${Buffer.from(code).toString("base64")}`;
   })());
   return cache.get(file.href);
 }
-export async function resolveLearnerAdditions(code) {
+export async function resolveLearnerAdditions(code,filename) {
+  // Resolve against the actual source file, rather than growing a hand-written
+  // alias inventory whenever production code gains a dependency. Replacements
+  // already supplied by a fixture (data:/file: URLs) remain untouched.
+  const origin=filename?new URL(filename,import.meta.url):undefined;
+  for(const specifier of new Set([...code.matchAll(/from "([^"]+)"/g)].map(m=>m[1]))){
+    const target=specifier.startsWith('@/')?await learnerModuleUrl(new URL('../src/'+specifier.slice(2)+'.ts',import.meta.url)):origin&&specifier.startsWith('.')?await learnerModuleUrl(new URL(specifier+'.ts',origin)):null;
+    if(target)code=code.replaceAll(`from "${specifier}"`,`from "${target}"`);
+  }
+  if(origin)return code;
+  for(const name of ["policy","model-scope","legacy-policy","schema"]){const specifier=`@/lib/admin/${name}`;if(code.includes(`from "${specifier}"`))code=code.replaceAll(`from "${specifier}"`,`from "${await learnerModuleUrl(`../src/lib/admin/${name}.ts`)}"`);}
   for (const name of ["teaching-version", "legacy-teaching-instructions", "skills/legacy-writing-review-policy"]) {
     for (const specifier of [`./${name}`, `@/lib/ai/${name}`]) if (code.includes(`from "${specifier}"`)) code = code.replaceAll(`from "${specifier}"`, `from "${await learnerModuleUrl(`../src/lib/ai/${name}.ts`)}"`);
   }

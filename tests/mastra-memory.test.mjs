@@ -1,18 +1,16 @@
 import assert from "node:assert/strict";
-import { readFile, mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import ts from "typescript";
+import { learnerModuleUrl } from "./learner-module-loader.mjs";
 import { LibSQLStore } from "@mastra/libsql";
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import { Agent } from "@mastra/core/agent";
 import { Mastra } from "@mastra/core/mastra";
 import { MockLanguageModelV4 } from "ai/test";
 
-let source = ts.transpileModule(await readFile(new URL("../src/lib/ai/mastra-memory.ts", import.meta.url), "utf8"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
-for (const name of ["@mastra/core/storage", "@mastra/memory", "@mastra/cloudflare-d1", "zod"]) source = source.replaceAll(`from "${name}"`, `from "${import.meta.resolve(name)}"`);
-const { createLearningD1Storage, createLearningMemory, learningMemoryIds, learningMemorySchema } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+const { createLearningD1Storage, createLearningMemory, learningMemoryIds, learningMemorySchema } = await import(await learnerModuleUrl("../src/lib/ai/mastra-memory.ts"));
 const a = learningMemoryIds("1ea8babe-aea6-4eb5-8fe4-67c4f5ba1411", "3ea8babe-aea6-4eb5-8fe4-67c4f5ba1433");
 const b = learningMemoryIds("2ea8babe-aea6-4eb5-8fe4-67c4f5ba1422", "3ea8babe-aea6-4eb5-8fe4-67c4f5ba1433");
 const fact = { learningAgreements: [{ fact: "Synthetic fixture: preserve the exact original sentence and its teacher/student identity.", sourceTurn: "unit-test-not-real-student" }] };

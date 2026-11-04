@@ -17,7 +17,8 @@ export async function GET(request:Request) {
     return Response.json(result,{headers});
   } catch {return Response.json({error:"索引状态暂不可用；原文仍保留"},{status:503,headers});}
 }
-export async function POST(request: Request) {
+export const POST=withStudentModelScope(handleScopedPost);
+async function handleScopedPost(request: Request) {
   const student = await getCurrentStudent(); if (!student) return Response.json({ error: "请先登录" }, { status: 401, headers });
   try {
     const text = await request.text(); if (text.length > 2_000) return Response.json({ error: "搜索内容过长" }, { status: 413, headers });
@@ -32,3 +33,4 @@ export async function POST(request: Request) {
     return Response.json({ error: error instanceof z.ZodError || error instanceof SyntaxError ? "搜索条件不正确" : "资料检索暂未完成，请重试；原始资料仍然保留" }, { status: error instanceof z.ZodError || error instanceof SyntaxError ? 400 : 503, headers });
   }
 }
+import {withStudentModelScope} from "@/lib/admin/request-scope";

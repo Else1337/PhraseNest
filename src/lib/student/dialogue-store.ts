@@ -59,6 +59,8 @@ export async function beginDialogueTurn(studentId: string, input: z.infer<typeof
       conversation.messages.push(assistant);
       if (revision) assistant.documentIds = [...new Set([...assistant.documentIds, ...revision.documentIds])].slice(0, 18);
     } else { assistant.status = "generating"; assistant.content = ""; assistant.documentIds = input.documentIds; assistant.toolReceipts = []; delete assistant.error; }
+    // Pending/failed classification is visible to admins, never learning evidence.
+    for (const message of conversation.messages) if (message.turnId === input.turnId) message.policy = { category: "unclassified", allowed: false, notice: "分类尚未完成", count: 0, pausedUntil: null, violation: false };
     conversation.updatedAt = now;
     // Cover the 180s ordinary model budget plus persistence/connection overhead.
     // Otherwise navigation recovery would incorrectly abandon a live answer.
@@ -76,6 +78,15 @@ export async function checkpointDialogueTurn(studentId: string, conversationId: 
     const message = conversation?.messages.find((item) => item.turnId === turnId && item.role === "assistant");
     if (!conversation || !message || message.status !== "generating" || !leaseToken || conversation.leaseToken !== leaseToken) throw new WorkspaceError("本次生成已停止或过期");
     message.content = content.slice(0, 28_000); message.toolReceipts = toolReceipts.slice(0, maxDialogueToolReceipts);
+    return conversation;
+  });
+}
+
+export async function setDialogueTurnPolicy(studentId: string, conversationId: string, turnId: string, policy: NonNullable<import("./dialogue-model").DialogueMessage["policy"]>, leaseToken: string | null) {
+  return mutateDialogueWorkspace(studentId, state => {
+    const conversation = state.conversations.find(item => item.id === conversationId);
+    if (!conversation || state.deletedConversations[conversationId] || !leaseToken || conversation.leaseToken !== leaseToken) throw new WorkspaceError("本次生成已停止或过期");
+    for (const message of conversation.messages) if (message.turnId === turnId) message.policy = policy;
     return conversation;
   });
 }

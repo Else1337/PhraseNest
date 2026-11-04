@@ -3,9 +3,10 @@ import {readFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
 import test from 'node:test';
+import {resolveLearnerAdditions} from './learner-module-loader.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url)).replaceAll('\\','/');
 const ts=createRequire(root+'package.json')('typescript');
-async function url(file,replacements={}){let code=ts.transpileModule(await readFile(root+file,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText;for(const [a,b]of Object.entries(replacements))code=code.replaceAll(`from "${a}"`,`from "${b}"`);return 'data:text/javascript;base64,'+Buffer.from(code).toString('base64');}
+async function url(file,replacements={}){let code=ts.transpileModule(await readFile(root+file,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText;for(const [a,b]of Object.entries(replacements))code=code.replaceAll(`from "${a}"`,`from "${b}"`);return 'data:text/javascript;base64,'+Buffer.from(await resolveLearnerAdditions(code,'../'+file)).toString('base64');}
 const {inquiryResponse}=await import(await url('src/lib/ai/inquiry-response.ts'));
 const {readInquiryResponse}=await import(await url('src/lib/student/inquiry-client.ts',{'./workspace-client':await url('src/lib/student/workspace-client.ts')}));
 const {annotationMessages}=await import(await url('src/lib/ai/annotation-context.ts',{'./task-context':await url('src/lib/ai/task-context.ts')}));

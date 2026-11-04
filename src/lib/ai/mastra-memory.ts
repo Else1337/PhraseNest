@@ -53,6 +53,14 @@ export function createLearningD1Storage(binding: D1Binding) {
 }
 
 export async function getMastraStorage(): Promise<MastraCompositeStore> {
+  if (process.env.ZHIBI_PERSISTENCE_MODE === "standalone") {
+    const key = `standalone:${process.env.LEARNING_DATABASE_URL || ""}`;
+    if (!localStorage || localStorage.key !== key) localStorage = { key, value: (async () => {
+      const [{ standaloneConnection }, { createCloudbaseMemoryStorage }] = await Promise.all([import("@/lib/storage/standalone-store"), import("./cloudbase-memory")]);
+      const storage = createCloudbaseMemoryStorage(standaloneConnection().rpc); await storage.init(); return storage;
+    })() };
+    try { return await localStorage.value; } catch (error) { localStorage = undefined; throw error; }
+  }
   if (process.env.ZHIBI_PERSISTENCE_MODE === "cloudbase") {
     const key = `cloudbase:${process.env.TCB_ENV || ""}`;
     if (!localStorage || localStorage.key !== key) localStorage = { key, value: (async () => {
@@ -135,7 +143,7 @@ export async function syncNativeConversation(memory: Memory, studentId: string, 
   if (!existing) await memory.saveThread({ thread: { id: ids.thread, resourceId: ids.resource, title: conversation.title, createdAt: new Date(conversation.createdAt), updatedAt: new Date(conversation.updatedAt) } });
   const projected = new Set<string>(Array.isArray(existing?.metadata?.businessProjectedMessages) ? existing.metadata.businessProjectedMessages.filter((x): x is string => typeof x === "string") : []);
   const completed = new Set<string>(Array.isArray(existing?.metadata?.businessCompletedTurns) ? existing.metadata.businessCompletedTurns.filter((x): x is string => typeof x === "string") : []);
-  const wanted = conversation.messages.filter((m) => m.turnId !== currentTurnId && m.status === "complete" && m.content.trim());
+  const wanted = conversation.messages.filter((m) => (!m.policy||m.policy.allowed) && m.turnId !== currentTurnId && m.status === "complete" && m.content.trim());
   if (wanted.every((m) => projected.has(m.id) || completed.has(m.turnId))) return { imported: 0, ...ids };
   const saved = await memory.recall({ threadId: ids.thread, resourceId: ids.resource, perPage: false });
   const savedIds = new Set(saved.messages.map((m) => m.id));
@@ -146,11 +154,12 @@ export async function syncNativeConversation(memory: Memory, studentId: string, 
   for (const id of Array.isArray(existing?.metadata?.businessCompletedTurns) ? existing.metadata.businessCompletedTurns : []) if (typeof id === "string") savedTurns.add(id);
   const messages: MastraDBMessage[] = [];
   for (const message of conversation.messages) {
-    if (message.turnId === currentTurnId || message.status !== "complete" || !message.content.trim()) continue;
+    if (message.policy&&!message.policy.allowed || message.turnId === currentTurnId || message.status !== "complete" || !message.content.trim()) continue;
     const role = message.role === "student" ? "user" : "assistant";
     const id = nativeMessageId(studentId, message.turnId, role);
     if (savedIds.has(id) || role === "assistant" && savedTurns.has(message.turnId)) continue;
-    messages.push({ id, role, threadId: ids.thread, resourceId: ids.resource, createdAt: new Date(message.createdAt), content: { format: 2, parts: [{ type: "text", text: role === "user" ? nativeQuestionText(message.content, message.turnId, message.documentIds) : message.content }], metadata: { businessTurnId: message.turnId, businessMessageId: message.id, sourceIds: message.documentIds } } });
+    const content = message.showcase ? `【展示对话样例，非当前游客作答】\n${message.content}` : message.content;
+    messages.push({ id, role, threadId: ids.thread, resourceId: ids.resource, createdAt: new Date(message.createdAt), content: { format: 2, parts: [{ type: "text", text: role === "user" ? nativeQuestionText(content, message.turnId, message.documentIds) : content }], metadata: { businessTurnId: message.turnId, businessMessageId: message.id, sourceIds: message.documentIds } } });
   }
   if (messages.length) await memory.saveMessages({ messages });
   const fresh = await memory.getThreadById({ threadId: ids.thread, resourceId: ids.resource });

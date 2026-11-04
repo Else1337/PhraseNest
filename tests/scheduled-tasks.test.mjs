@@ -4,10 +4,11 @@ import { readFile, mkdtemp } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import ts from 'typescript';
+import {resolveLearnerAdditions} from './learner-module-loader.mjs';
 const moduleUrl = async (file, aliases = {}) => {
   let source = ts.transpileModule(await readFile(new URL(file, import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
   for (const [name, url] of Object.entries({ zod: import.meta.resolve('zod'), ...aliases })) source = source.replaceAll(`from "${name}"`, `from "${url}"`);
-  return 'data:text/javascript;base64,' + Buffer.from(source).toString('base64');
+  return 'data:text/javascript;base64,' + Buffer.from(await resolveLearnerAdditions(source,file)).toString('base64');
 };
 const model = await moduleUrl('../src/lib/student/dialogue-model.ts');
 const storage = await moduleUrl('../src/lib/storage/file-store.ts');

@@ -7,7 +7,7 @@ import { examTutorSkill, legacyExamTutorSkill } from "./skills/exam-tutor";
 import type { TeachingVersion } from "./teaching-version";
 import { Agent } from "@mastra/core/agent";
 import { Mastra } from "@mastra/core/mastra";
-import { ToolCallFilter, ToolSearchProcessor, type InputProcessor } from "@mastra/core/processors";
+import { ToolCallFilter, ToolSearchProcessor, type InputProcessor,type OutputProcessor } from "@mastra/core/processors";
 import { createTool } from "@mastra/core/tools";
 import type { MastraCompositeStore } from "@mastra/core/storage";
 import { createDeepSeek } from "@ai-sdk/deepseek";
@@ -28,6 +28,8 @@ import { meteredFingerprint, stepUsageSnapshot } from "./usage-meter";
 import { contextAssemblyPolicy } from "./context-assembly";
 import { readSourcePassage, type SourceReader, type SourceReadOptions } from "@/lib/student/source-passages";
 import { createToolContextProcessor, toolModelOutput } from "./tool-context";
+import { meteredTransport,currentModelScope } from "@/lib/admin/model-scope";
+import {PolicyFrame,PolicyFrameError,UsagePolicyError,policyInstruction,recordPolicy,policyInputHash,assertAiAvailable,type PolicyDecision,type UsagePolicyClassifier} from "@/lib/admin/policy";
 
 export const dialogueContextLimits = { policy: "native-memory-or-complete-conversation" } as const;
 
@@ -110,13 +112,14 @@ export function createDialogueTools(resources: readonly LearningResource[], onRe
   };
 }
 
-export function dialogueLanguageModel(config: { apiKey: string; baseUrl: string; model: string }, onRequest?: (params: unknown) => void, transport?: typeof fetch) {
+export function dialogueLanguageModel(config: { apiKey: string; baseUrl: string; model: string }, onRequest?: (params: unknown) => void, transport?: typeof fetch,surface?:string) {
   const middleware = { ...toolProtocolMiddleware, transformParams: async (args: Parameters<NonNullable<typeof toolProtocolMiddleware.transformParams>>[0]) => {
     const normalized = await toolProtocolMiddleware.transformParams!(args);
     const params = process.env.ZHIBI_PREFIX_CACHE_LAYOUT === "0" ? normalized : layoutProviderPrefix(normalized);
     onRequest?.(params); return params;
   } };
-  return wrapLanguageModel({ model: createDeepSeek({ apiKey: config.apiKey, baseURL: config.baseUrl, ...(transport ? { fetch: transport } : {}) })(config.model), middleware });
+  const scope=currentModelScope();
+  return wrapLanguageModel({ model: createDeepSeek({ apiKey: config.apiKey, baseURL: config.baseUrl, fetch: meteredTransport(transport??fetch,scope&&surface?{...scope,surface}:scope) })(config.model), middleware });
 }
 
 export type DialogueUsage = { runId: string; step: number; surface: string; model: string; inputTokens: number | null; cachedInputTokens: number | null; outputTokens: number | null; firstTextMs: number | null; elapsedMs: number; fingerprint: string; meteringVersion?: 2 };
@@ -156,7 +159,10 @@ export async function* streamDialogueAgent(options: {
   actionTools?: ReturnType<typeof createAgentActionTools>;
   contextProfile?: ContextProfile;
   teachingVersion?: TeachingVersion;
+  policyClassifier?: UsagePolicyClassifier;
+  onPolicy?: (decision:PolicyDecision)=>Promise<void>;
 }) {
+  await assertAiAvailable(options.studentId);
   const lean = options.contextProfile === "lean-v1";
   const taskContext = contextAssemblyPolicy() === "task-v2";
   const latestQuestion = options.messages.filter((message) => message.role === "user").at(-1)?.content;
@@ -212,7 +218,7 @@ export async function* streamDialogueAgent(options: {
       }
     } }) } : {}),
     ...(options.onMaterialIndex ? { record_learning_index: createTool({ id: "record_learning_index", description: "顺带为本轮已阅读材料留下轻量检索索引，不进行第二次解题。quote必须逐字来自授权来源，问题不代表错误。", inputSchema: materialIndexSchema,
-      execute: async (input) => { if (++indexes > 3) return { pending: true, notice: "本轮索引已达上限，保留原文供后台按需回读" }; try { return await options.onMaterialIndex!(materialIndexSchema.parse(input)); } catch { return { pending: true, notice: "原问题仍保留，索引待补齐，不影响本轮讲解" }; } }
+      execute: async (input) => { if (++indexes > 3) return { pending: true, notice: "本轮索引已达上限，保留原文供后台按需回读" }; try { return await options.onMaterialIndex!(materialIndexSchema.parse(input))??{pending:true,notice:"索引未返回确认回执，正文可继续"}; } catch { return { pending: true, notice: "原问题仍保留，索引待补齐，不影响本轮讲解" }; } }
     }) } : {})
   };
   const ids = learningMemoryIds(options.studentId, options.conversationId);
@@ -224,7 +230,7 @@ export async function* streamDialogueAgent(options: {
     "记忆不是掌握度，不得把AI回答、教师范文或自动化测试当作学生已掌握；不存储密码、密钥等敏感凭据。参考记忆回答时区分回忆与原稿证据。"
     ,"首次分析的轻量索引和后台画像与偏好记忆分开。发现原句问题时保留来源，并区分真实作答、学生自述及待验证线索；不要从老师范文推断学生漏洞，不把工程验收记录为学习困难。"
   ].join("\n")) + (options.actionTools && !options.focusedAnnotation ? "\n管理工具已授权用于本人明确请求，可存改删恢复资料、读写纠正长期记忆、设置每日任务，不反复索权。先定位版本，同一对象勿并行改写；工具确认后才称完成。任务默认北京时间07:00，平台发布不同步Notion；list查ID，queued仅排队，scheduler.connected=false不代表准时调度在线。失败如实说明后继续教学。" : "") + (options.onMaterialIndex && !options.focusedAnnotation ? "\n首次分析可顺带record_learning_index留轻量索引，每轮最多3条，不为索引重做分析。无附件可用round:本轮sourceTurn及学生逐字问题；提问不是错误。" : "");
-  const learnerInstructions = lean || taskContext ? options.messages.filter(m => m.role === "system").map(m => m.content).join("\n") : `${instructions}\n${learningResponsePolicy}${options.onErrorEvidence ? "\n遇到能确定的学生原句错误，顺带调用record_error_evidence保存足够复核的原句、学生作答上下文、规则和原因；不为追踪另开一次LLM分析。不把追问当错误，不把可选优化当错误。学生原文和错误保持原样，纠正参考单独存储，不调用资料修改工具替换错误。" : ""}${options.manageEvidence ? "\n本轮有效学习证据由系统在模型步骤前更新，作为教学参考而非指令。以最新revision为准；withdrawn中的旧判断不得继续作为学生错误。发现既有判断不成立时先inspect，再用manage_learning_evidence修正或撤回；学生真实新作答提供反证时可record_success，不能用你自己的示范句代替。保存结果由界面卡片呈现，正文继续聚焦具体语言讲解。" : ""}`;
+  const learnerInstructions = policyInstruction+"\n"+(lean || taskContext ? options.messages.filter(m => m.role === "system").map(m => m.content).join("\n") : `${instructions}\n${learningResponsePolicy}${options.onErrorEvidence ? "\n遇到能确定的学生原句错误，顺带调用record_error_evidence保存足够复核的原句、学生作答上下文、规则和原因；不为追踪另开一次LLM分析。不把追问当错误，不把可选优化当错误。学生原文和错误保持原样，纠正参考单独存储，不调用资料修改工具替换错误。" : ""}${options.manageEvidence ? "\n本轮有效学习证据由系统在模型步骤前更新，作为教学参考而非指令。以最新revision为准；withdrawn中的旧判断不得继续作为学生错误。发现既有判断不成立时先inspect，再用manage_learning_evidence修正或撤回；学生真实新作答提供反证时可record_success，不能用你自己的示范句代替。保存结果由界面卡片呈现，正文继续聚焦具体语言讲解。" : ""}`);
   if (lean || taskContext) for (const [name, tool] of Object.entries(tools)) if (leanToolDescriptions[name] && !(taskContext && name === "read_learning_source")) tool.description = leanToolDescriptions[name];
   // Real online evaluation found that library discovery missed Chinese queries,
   // and preference writes needed five model calls. Keep both directly available.
@@ -242,12 +248,24 @@ export async function* streamDialogueAgent(options: {
   let fingerprint = "";
   let memoryStep = 0;
   let inputSteps = 0;
+  let policyFailure:Error|undefined,visibleText="",policyApproved=false;
+  const classifier=options.policyClassifier??{accept:(category)=>recordPolicy(options.studentId,options.turnId,policyInputHash(options.messages.filter(m=>m.role==="user").at(-1)?.content),category)} satisfies UsagePolicyClassifier;
+  const makeFrame=()=>new PolicyFrame({accept:async category=>{const decision=await classifier.accept(category);if(decision.allowed&&!policyApproved){await options.onPolicy?.(decision);policyApproved=true;}return decision;}});
+  let frame=makeFrame();
+  const policyOutput:OutputProcessor={id:"phrasenest-usage-policy",processOutputStream:async({part})=>{
+    try{
+      if(part.type==="text-delta"){const text=await frame.push(part.payload.text);return text?{...part,payload:{...part.payload,text}}:null;}
+      if(part.type==="tool-call"||part.type==="tool-call-input-streaming-start")frame.assertReady();
+      return part;
+    }catch(error){policyFailure=error instanceof Error?error:new PolicyFrameError();throw policyFailure;}
+  },processOutputStep:async({messageList})=>{try{frame.assertReady();return messageList;}catch(error){policyFailure=error as Error;throw error;}}};
   try {
     const latest = options.messages.filter((message) => message.role === "user").at(-1);
     if (!latest || typeof latest.content !== "string") throw new Error("缺少本轮问题");
     const currentQuestion = latest.content;
     // Keep the current question anchored after tool steps, not another stored turn.
     const questionAnchor: InputProcessor = { id: "zhibi-current-question", processLLMRequest: async ({ prompt }) => {
+      frame=makeFrame();
       const hasText = (message: typeof prompt[number], matches: (text: string) => boolean) => typeof message.content === "string"
         ? matches(message.content)
         : Array.isArray(message.content) && message.content.some(part => part.type === "text" && matches(part.text));
@@ -271,9 +289,10 @@ export async function* streamDialogueAgent(options: {
     const storage = options.focusedAnnotation ? undefined : options.storage ?? await getMastraStorage();
     const memory = storage ? createLearningMemory(storage, { contextProfile: options.contextProfile, ...(options.nativeConversation ? { native: true, model: options.observerModel ?? options.model, onObserved: options.onObserved, onMemoryUsage: options.onUsage ? async (value) => { await options.onUsage!({ runId: `${options.turnId}:${started}:${value.phase}`, step: ++memoryStep, surface: value.phase, model: options.modelName ?? "configured-model", ...actualTokenUsage(value), firstTextMs: null, elapsedMs: value.elapsedMs, fingerprint: meteredFingerprint(JSON.stringify({ phase: value.phase, inheritedModel: true }), 2, "memory-cycle"), meteringVersion: 2 }); } : undefined } : {}) }) : undefined;
     if (memory && options.nativeConversation) await syncNativeConversation(memory, options.studentId, options.nativeConversation, options.turnId);
+const guardedMemoryTools=Object.fromEntries(memory?[["updateWorkingMemory",createTool({id:"updateWorkingMemory",description:"保存本人稳定学习偏好和学习约定；保留已有项目，勿存本轮临时题目。",inputSchema:z.object({memory:learningMemorySchema.pick({preferences:true,learningAgreements:true}).strict()}).strict(),execute:async input=>{frame.assertReady();const raw=await memory.getWorkingMemory({threadId:ids.thread,resourceId:ids.resource});const before=learningMemorySchema.parse(raw?JSON.parse(raw):{});const workingMemory=JSON.stringify({...before,...input.memory});if(await memory.supportsAtomicWorkingMemoryMerge())await memory.mergeWorkingMemory({threadId:ids.thread,resourceId:ids.resource,workingMemory:input.memory});else await memory.updateWorkingMemory({threadId:ids.thread,resourceId:ids.resource,workingMemory});return {success:true};}})]]:[]);
     const selectedWritingSkill = options.teachingVersion === "old" ? legacyWritingReviewSkill : writingReviewSkill;
     const selectedExamSkill = options.teachingVersion === "old" ? legacyExamTutorSkill : examTutorSkill;
-    const penbot = new Agent({ skills: essay ? [selectedWritingSkill] : options.examTutor && !options.focusedAnnotation ? [selectedExamSkill] : [], id: "zhibi-penbot", name: "Mia", model: options.model, instructions: learnerInstructions, inputProcessors: [new ToolCallFilter(), ...(lean || taskContext ? [createNativeGuideProcessor(options.teachingVersion)] : []), ...(taskContext ? [createToolContextProcessor()] : []), ...(lean && Object.keys(deferredTools).length ? [new ToolSearchProcessor({ tools: deferredTools, injectCatalog: true, storage: "context", search: { autoLoad: true, topK: 2 } })] : []), questionAnchor], tools: options.focusedAnnotation ? {} : directTools, ...(options.focusedAnnotation ? {} : { memory }) });
+const penbot = new Agent({ skills: essay ? [selectedWritingSkill] : options.examTutor && !options.focusedAnnotation ? [selectedExamSkill] : [], id: "zhibi-penbot", name: "Mia", model: options.model, instructions: learnerInstructions, inputProcessors: [new ToolCallFilter(), ...(lean || taskContext ? [createNativeGuideProcessor(options.teachingVersion)] : []), ...(taskContext ? [createToolContextProcessor()] : []), ...(lean && Object.keys(deferredTools).length ? [new ToolSearchProcessor({ tools: deferredTools, injectCatalog: true, storage: "context", search: { autoLoad: true, topK: 2 } })] : []), questionAnchor],outputProcessors:[policyOutput], tools: options.focusedAnnotation ? {} : {...directTools,...guardedMemoryTools}, ...(options.focusedAnnotation ? {} : { memory }) });
     const mastra = new Mastra({ agents: { penbot }, storage, logger: false });
     // Context is per-call reference data, not another persisted user question.
     const context = options.messages[1]?.role === "user" && options.messages[1].content !== latest.content ? [{ role: "user" as const, content: String(options.messages[1].content) }] : [];
@@ -281,7 +300,7 @@ export async function* streamDialogueAgent(options: {
     // from this conversation, never a regex-selected subset of recent questions.
     const localHistory = options.messages.slice(2, -1).filter((message) => message.role === "user" || message.role === "assistant").map((message) => (message.role === "assistant" ? { role: "assistant" as const, content: String(message.content) } : { role: "user" as const, content: String(message.content) }));
     const result = await mastra.getAgent("penbot").stream([...(options.nativeConversation ? [] : localHistory), { id: options.nativeConversation ? nativeMessageId(options.studentId, options.turnId, "user") : `${ids.resource}:${options.turnId}`, role: "user", content: options.focusedAnnotation ? latest.content : nativeQuestionText(latest.content, options.turnId, options.nativeConversation?.messages.find((m) => m.turnId === options.turnId && m.role === "student")?.documentIds) }], {
-      ...(options.focusedAnnotation ? {} : { memory: { ...ids, options: { generateTitle: false, ...(options.nativeConversation ? {} : { lastMessages: false as const }) } } }), context,
+      ...(options.focusedAnnotation ? {} : { memory: { ...ids, options: { readOnly:true,generateTitle: false, ...(options.nativeConversation ? {} : { lastMessages: false as const }) } } }), context,
       runId: options.turnId, maxSteps: options.focusedAnnotation ? 1 : limits.steps,
       modelSettings: { maxRetries: 1, maxOutputTokens: limits.maxOutputTokens, temperature: 0.25, ...(essay ? { providerOptions: { deepseek: { thinking: { type: "disabled" } } } } : {}), timeout: { totalMs: limits.timeoutMs } },
       prepareStep: ({ stepNumber }) => allToolCalls >= dialogueAgentLimits.toolCalls || stepNumber >= limits.steps - 1 || essay && Date.now() - started > 35_000 ? { toolChoice: "none" } : {},
@@ -289,6 +308,7 @@ export async function* streamDialogueAgent(options: {
       hooks: {
         beforeToolCall: ({ toolName }) => {
           signal.throwIfAborted();
+          frame.assertReady();
           // Parallel calls can cross the advisory boundary in one model step.
           // Read tools return a limit result; the next step must synthesize,
           // rather than throwing away an otherwise valid partial investigation.
@@ -330,6 +350,7 @@ export async function* streamDialogueAgent(options: {
         finished = true;
       }
       if (part.type === "text-delta") {
+        visibleText+=part.payload.text;
         firstTextMs ??= Date.now() - started;
         textInStep = true;
         length += part.payload.text.length;
@@ -340,6 +361,12 @@ export async function* streamDialogueAgent(options: {
     signal.throwIfAborted();
     if (!finished || !length) throw new Error("没有收到完整回复");
     if (options.nativeConversation && memory) {
+      const projected=structuredClone(options.nativeConversation);
+      for(const message of projected.messages)if(message.turnId===options.turnId){message.status="complete";if(frame.decision)message.policy=frame.decision;if(message.role==="assistant")message.content=visibleText;}
+      if(!projected.messages.some(m=>m.turnId===options.turnId&&m.role==="assistant"))projected.messages.push({id:crypto.randomUUID(),turnId:options.turnId,role:"assistant",content:visibleText,status:"complete",createdAt:new Date().toISOString(),documentIds:[],task:options.task??"conversation",practice:false,toolReceipts:[]});
+      await syncNativeConversation(memory,options.studentId,projected);
+      const om=await memory.omEngine;
+      if(om)await om.observe({threadId:ids.thread,resourceId:ids.resource,force:false});
       await memory.settled().catch(() => console.warn("[native-memory-pending]", { runId: options.turnId }));
       await markNativeTurn(memory, options.studentId, options.conversationId, options.turnId);
     }
@@ -351,6 +378,8 @@ export async function* streamDialogueAgent(options: {
       } catch { /* A projection failure must not discard a completed lesson. */ }
     }
   } catch (error) {
+    if(policyFailure)throw policyFailure;
+    if(error instanceof UsagePolicyError||error instanceof PolicyFrameError)throw error;
     const timeout = signal.aborted && !options.signal.aborted && signal.reason?.name === "TimeoutError";
     // Names/codes only: provider errors can embed student text or credentials.
     const failure = error instanceof Error ? error as Error & { code?: unknown } : undefined;

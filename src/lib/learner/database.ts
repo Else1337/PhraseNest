@@ -1,6 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { learningChangeDdl } from "./change-database";
+import { adminDdl } from "@/lib/admin/schema";
 
 export type SqlValue = string | number | null;
 export type SqlRow = Record<string, string | number | null>;
@@ -32,6 +33,7 @@ const ddl = [
   `CREATE INDEX IF NOT EXISTS lp_rounds_conversation ON lp_rounds(student_id,conversation_id,created_at)`,
   `CREATE INDEX IF NOT EXISTS lp_jobs_ready ON lp_jobs(status,ready_at)`,
   ...learningChangeDdl,
+  ...adminDdl,
 ];
 
 export async function openLearnerDatabase(url: string): Promise<LearnerDatabase> {
@@ -81,7 +83,7 @@ export function learnerDatabase() {
     return current.value;
   }
   const remote = process.env.LEARNER_DATABASE_URL || process.env.LEARNING_DATABASE_URL;
-  if (process.env.ZHIBI_PERSISTENCE_MODE === "postgres" && !/^postgres(?:ql)?:/.test(remote || "")) throw new Error("LEARNER_PERSISTENCE_CONFIGURATION_REQUIRED");
+  if (["postgres", "standalone"].includes(process.env.ZHIBI_PERSISTENCE_MODE || "") && !/^postgres(?:ql)?:/.test(remote || "")) throw new Error("LEARNER_PERSISTENCE_CONFIGURATION_REQUIRED");
   const url = remote || path.resolve(process.env.STUDENT_PROJECT_DATA_DIR || "data", "learner", "learning.sqlite");
   if (!current || current.url !== url) current = { url, value: openLearnerDatabase(url).catch((error) => { current = undefined; throw error; }) };
   return current.value;
